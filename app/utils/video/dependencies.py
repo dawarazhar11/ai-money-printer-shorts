@@ -1,120 +1,140 @@
 #!/usr/bin/env python3
 """
-Direct installer for video processing dependencies
+Dependency installer for video processing and captioning
 """
 
-import subprocess
-import sys
 import os
+import sys
+import subprocess
 import platform
 
-def check_dependency(package_name, required_version=None):
-    """Check if a package is installed with the required version"""
+def check_pip():
+    """Check if pip is available and up to date"""
     try:
-        # Try to import the package
-        module = __import__(package_name)
-        
-        # Get the installed version
-        installed_version = getattr(module, '__version__', 'unknown')
-        
-        if required_version and installed_version != required_version:
-            print(f"⚠️ {package_name} is installed but version mismatch: {installed_version} (required: {required_version})")
-            return False
-        
-        print(f"✅ {package_name} is installed (version: {installed_version})")
+        import pip
         return True
     except ImportError:
-        print(f"❌ {package_name} is not installed")
+        print("❌ pip is not installed. Please install pip first.")
+        return False
+
+def check_command(command):
+    """Check if a command is available"""
+    try:
+        subprocess.run([command, "--version"], 
+                       stdout=subprocess.PIPE, 
+                       stderr=subprocess.PIPE)
+        return True
+    except:
+        return False
+
+def install_package(package, version=None):
+    """Install a Python package using pip"""
+    try:
+        package_spec = f"{package}=={version}" if version else package
+        print(f"Installing {package_spec}...")
+        subprocess.run([sys.executable, "-m", "pip", "install", package_spec], 
+                      check=True)
+        print(f"✅ Successfully installed {package}")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Failed to install {package}: {str(e)}")
         return False
 
 def check_ffmpeg():
-    """Check if ffmpeg is installed on the system"""
-    try:
-        result = subprocess.run(
-            ["ffmpeg", "-version"], 
-            capture_output=True, 
-            text=True
-        )
-        if result.returncode == 0:
-            print(f"✅ ffmpeg is installed: {result.stdout.splitlines()[0]}")
-            return True
-        else:
-            print("❌ ffmpeg is not installed or not in PATH")
-            return False
-    except FileNotFoundError:
-        print("❌ ffmpeg is not installed or not in PATH")
+    """Check if ffmpeg is installed and print installation instructions if not"""
+    if check_command("ffmpeg"):
+        result = subprocess.run(["ffmpeg", "-version"], 
+                               stdout=subprocess.PIPE, 
+                               stderr=subprocess.PIPE, 
+                               text=True)
+        print(f"✅ ffmpeg is installed: {result.stdout.split('\\n')[0]}")
+        return True
+    else:
+        print("❌ ffmpeg is not installed.")
+        system = platform.system().lower()
+        if system == "darwin":
+            print("To install ffmpeg on macOS, use Homebrew:")
+            print("  brew install ffmpeg")
+        elif system == "windows":
+            print("To install ffmpeg on Windows:")
+            print("  1. Download from https://ffmpeg.org/download.html")
+            print("  2. Or use Chocolatey: choco install ffmpeg")
+        else:  # Linux
+            print("To install ffmpeg on Linux:")
+            print("  sudo apt update && sudo apt install ffmpeg  # For Debian/Ubuntu")
+            print("  sudo yum install ffmpeg  # For CentOS/RHEL")
         return False
 
-def install_package(package_spec):
-    """Install a Python package with proper version specification"""
+def install_video_dependencies():
+    """Install required dependencies for video processing"""
+    requirements = {
+        "moviepy": "1.0.3",
+        "numpy": None,  # Let pip determine the compatible version
+        "ffmpeg-python": "0.2.0", 
+        "pillow": None  # Let pip determine the compatible version
+    }
+    
+    # Check pip
+    if not check_pip():
+        return False
+    
+    # Install Python packages
+    all_installed = True
+    for package, version in requirements.items():
+        if not install_package(package, version):
+            all_installed = False
+    
+    # Check for ffmpeg
+    ffmpeg_installed = check_ffmpeg()
+    
+    return all_installed and ffmpeg_installed
+
+def install_caption_dependencies():
+    """Install required dependencies for video captioning"""
+    # First install video dependencies
+    if not install_video_dependencies():
+        print("⚠️ Warning: Some video dependencies could not be installed.")
+    
+    # Install whisper for transcription
     try:
-        subprocess.check_call([
-            sys.executable, "-m", "pip", "install", package_spec
-        ])
-        print(f"✅ Successfully installed {package_spec}")
+        print("Installing OpenAI Whisper (this may take a while)...")
+        subprocess.run([sys.executable, "-m", "pip", "install", "openai-whisper"], 
+                      check=True)
+        print("✅ Successfully installed OpenAI Whisper")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"❌ Failed to install {package_spec}: {e}")
+        print(f"❌ Failed to install OpenAI Whisper: {str(e)}")
         return False
 
 def main():
-    print("Checking dependencies for video processing...")
+    """Main function"""
+    print("=== Video Processing Dependencies Installer ===\n")
     
-    # Check required Python packages
-    moviepy_ok = check_dependency("moviepy")
-    numpy_ok = check_dependency("numpy")
-    ffmpeg_python_ok = check_dependency("ffmpeg_python")
-    pillow_ok = check_dependency("PIL")
+    # Ask what to install
+    print("What would you like to install?")
+    print("1. Basic video processing dependencies (MoviePy, numpy, ffmpeg-python)")
+    print("2. All dependencies including captioning (adds OpenAI Whisper)")
     
-    # Check for ffmpeg
-    ffmpeg_ok = check_ffmpeg()
+    choice = input("Enter your choice (1 or 2): ")
     
-    # List missing packages
-    missing_packages = []
-    if not moviepy_ok:
-        missing_packages.append("moviepy==1.0.3")
-    if not numpy_ok:
-        missing_packages.append("numpy")
-    if not ffmpeg_python_ok:
-        missing_packages.append("ffmpeg-python==0.2.0")
-    if not pillow_ok:
-        missing_packages.append("pillow")
-    
-    if missing_packages:
-        print("\nMissing packages:")
-        for pkg in missing_packages:
-            print(f"  - {pkg}")
-        
-        # Ask user if they want to install missing packages
-        user_input = input("Do you want to install missing packages? (y/n): ")
-        if user_input.lower() == 'y':
-            for package in missing_packages:
-                install_package(package)
-        else:
-            print("Skipping package installation.")
-    
-    # Check if all dependencies are installed after installation
-    has_errors = False
-    if not check_dependency("moviepy") or not check_dependency("numpy") or \
-       not check_dependency("ffmpeg_python") or not check_dependency("PIL") or \
-       not check_ffmpeg():
-        has_errors = True
-    
-    if has_errors:
-        print("❌ Some dependencies are missing.")
-        print("\nPlease install dependencies manually with:")
-        print("  pip install moviepy==1.0.3 numpy ffmpeg-python==0.2.0 pillow")
-        print("\nAnd install ffmpeg from your system's package manager:")
-        
-        if platform.system() == "Darwin":  # macOS
-            print("  brew install ffmpeg")
-        elif platform.system() == "Linux":
-            print("  sudo apt-get install ffmpeg  # For Debian/Ubuntu")
-            print("  sudo dnf install ffmpeg     # For Fedora/RHEL")
-        elif platform.system() == "Windows":
-            print("  Download from https://ffmpeg.org/download.html")
+    if choice == "1":
+        success = install_video_dependencies()
+    elif choice == "2":
+        success = install_caption_dependencies()
     else:
-        print("\n✅ All dependencies are installed successfully!")
+        print("Invalid choice. Please enter 1 or 2.")
+        return
+    
+    # Print summary
+    if success:
+        print("\n✅ All dependencies installed successfully!")
+    else:
+        print("\n⚠️ Some dependencies could not be installed. Please check the messages above.")
+    
+    # Check ffmpeg regardless of success
+    check_ffmpeg()
+    
+    print("\nYou can now use the video processing features.")
 
 if __name__ == "__main__":
     main() 
