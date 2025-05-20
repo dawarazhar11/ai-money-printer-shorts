@@ -7,6 +7,11 @@ import time
 from datetime import datetime
 import cv2
 import traceback
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import io
+import base64
+from matplotlib.figure import Figure
 
 # Add the parent directory to the Python path to allow importing from app modules
 app_root = Path(__file__).parent.parent.absolute()
@@ -1280,6 +1285,34 @@ if content_status and segments:
                 segment_num = item['segment_id'].split('_')[-1]
                 st.markdown(f"**{i+1}.** B-Roll Segment {int(broll_num) + 1} visuals + A-Roll Segment {int(segment_num) + 1} audio")
     
+    # Show timeline visualization
+    st.markdown("#### Timeline Visualization:")
+    
+    # Generate timeline visualization
+    timeline_img = render_sequence_timeline(st.session_state.video_assembly["sequence"])
+    
+    if timeline_img:
+        st.markdown(f"""
+            <div style="text-align: center;">
+                <img src="data:image/png;base64,{timeline_img}" style="max-width: 100%; height: auto;">
+            </div>
+            <p style="text-align: center; font-size: 0.8em; color: #666;">
+                Timeline showing video and audio tracks. Green = A-Roll video, Blue = B-Roll video, Orange = A-Roll audio.
+            </p>
+        """, unsafe_allow_html=True)
+        
+        # Add note about potential audio overlaps
+        st.markdown("""
+            <div style="background-color: #f8f9fa; padding: 10px; border-radius: 5px; margin-top: 10px;">
+                <p style="margin: 0; font-size: 0.9em;">
+                    <strong>Note:</strong> If you notice audio overlaps or issues in the final video, try adjusting the sequence 
+                    to ensure each A-Roll audio segment is used only once, or use the Custom Arrangement for more control.
+                </p>
+            </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.info("Generate a sequence to view the timeline visualization.")
+
     # Assembly options
     st.subheader("Assembly Options")
     resolution_options = ["1080x1920 (9:16)", "720x1280 (9:16)", "1920x1080 (16:9)"]
@@ -1299,3 +1332,158 @@ if content_status and segments:
             except Exception as e:
                 st.error(f"Error checking dependencies: {str(e)}")
                 st.info("Please run `python utils/video/dependencies.py` manually to install required packages")
+
+# Add this function before the assembly functions
+def render_sequence_timeline(sequence):
+    """
+    Render a timeline visualization of the video sequence showing
+    how segments are arranged and where audio comes from
+    
+    Args:
+        sequence: List of video segments to assemble
+        
+    Returns:
+        str: Base64 encoded image of the timeline
+    """
+    if not sequence:
+        return None
+    
+    fig, ax = plt.subplots(figsize=(12, 4))
+    
+    # Track durations and start times
+    current_time = 0
+    y_positions = {"video": 0.6, "audio": 0.2}
+    colors = {
+        "aroll_video": "#4CAF50",  # Green
+        "broll_video": "#2196F3",  # Blue
+        "aroll_audio": "#FF9800",  # Orange
+    }
+    
+    # Set up the plot
+    ax.set_ylim(0, 1)
+    ax.set_xlim(0, 30)  # Adjust based on expected total duration
+    ax.set_xlabel("Time (seconds)")
+    ax.set_yticks([y_positions["video"], y_positions["audio"]])
+    ax.set_yticklabels(["Video", "Audio"])
+    ax.grid(axis="x", linestyle="--", alpha=0.7)
+    ax.set_title("Sequence Timeline")
+    
+    # Track start times for each segment
+    start_times = []
+    segment_durations = []
+    
+    # Estimate durations (in practice, you would get these from the actual video files)
+    # For this visualization, we'll use average durations
+    avg_duration = 7  # seconds per segment - typical short segment
+    
+    # Loop through sequences and draw rectangles for each segment
+    for i, item in enumerate(sequence):
+        segment_id = item.get("segment_id", f"segment_{i}")
+        segment_duration = avg_duration  # In a real implementation, get actual duration
+        segment_durations.append(segment_duration)
+        start_times.append(current_time)
+        
+        # Draw video track
+        if item["type"] == "aroll_full":
+            # A-Roll video track
+            video_rect = patches.Rectangle(
+                (current_time, y_positions["video"] - 0.15), 
+                segment_duration, 
+                0.3, 
+                facecolor=colors["aroll_video"],
+                alpha=0.8,
+                label="A-Roll Video" if i == 0 else None
+            )
+            ax.add_patch(video_rect)
+            ax.text(
+                current_time + segment_duration / 2, 
+                y_positions["video"], 
+                f"A-{segment_id.split('_')[-1]}", 
+                ha="center", 
+                va="center",
+                color="white",
+                fontweight="bold"
+            )
+            
+            # A-Roll audio track (same source)
+            audio_rect = patches.Rectangle(
+                (current_time, y_positions["audio"] - 0.15), 
+                segment_duration, 
+                0.3, 
+                facecolor=colors["aroll_audio"],
+                alpha=0.8,
+                label="A-Roll Audio" if i == 0 else None
+            )
+            ax.add_patch(audio_rect)
+            ax.text(
+                current_time + segment_duration / 2, 
+                y_positions["audio"], 
+                f"A-{segment_id.split('_')[-1]}", 
+                ha="center", 
+                va="center",
+                color="black",
+                fontweight="bold"
+            )
+        else:  # broll_with_aroll_audio
+            broll_id = item.get("broll_id", "").split("_")[-1]
+            # B-Roll video track
+            video_rect = patches.Rectangle(
+                (current_time, y_positions["video"] - 0.15), 
+                segment_duration, 
+                0.3, 
+                facecolor=colors["broll_video"],
+                alpha=0.8,
+                label="B-Roll Video" if i == 0 or (i > 0 and sequence[i-1]["type"] != "broll_with_aroll_audio") else None
+            )
+            ax.add_patch(video_rect)
+            ax.text(
+                current_time + segment_duration / 2, 
+                y_positions["video"], 
+                f"B-{broll_id}", 
+                ha="center", 
+                va="center",
+                color="white",
+                fontweight="bold"
+            )
+            
+            # A-Roll audio track
+            audio_rect = patches.Rectangle(
+                (current_time, y_positions["audio"] - 0.15), 
+                segment_duration, 
+                0.3, 
+                facecolor=colors["aroll_audio"],
+                alpha=0.8,
+                label="A-Roll Audio" if i == 0 or (i > 0 and sequence[i-1]["type"] != "broll_with_aroll_audio") else None
+            )
+            ax.add_patch(audio_rect)
+            ax.text(
+                current_time + segment_duration / 2, 
+                y_positions["audio"], 
+                f"A-{segment_id.split('_')[-1]}", 
+                ha="center", 
+                va="center",
+                color="black",
+                fontweight="bold"
+            )
+        
+        current_time += segment_duration
+    
+    # Adjust the x-axis to fit the content
+    ax.set_xlim(0, current_time + 2)
+    
+    # Add legend
+    handles, labels = ax.get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+    ax.legend(by_label.values(), by_label.keys(), loc="upper right")
+    
+    # Convert plot to image
+    buf = io.BytesIO()
+    fig.tight_layout()
+    plt.savefig(buf, format="png", dpi=100)
+    plt.close(fig)
+    
+    # Encode the image to base64 string
+    buf.seek(0)
+    img_str = base64.b64encode(buf.read()).decode("utf-8")
+    
+    return img_str
