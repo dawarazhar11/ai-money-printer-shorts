@@ -6,6 +6,9 @@ from pathlib import Path
 import time
 from datetime import datetime
 import json
+import tempfile
+import subprocess
+import shutil
 
 # Add the parent directory to the Python path to allow importing from app modules
 app_root = Path(__file__).parent.parent.parent.absolute()
@@ -185,6 +188,99 @@ def has_valid_audio(clip):
         print(f"Unexpected audio validation error: {str(e)}")
         return False
 
+# Add this function to extract audio from video file to separate audio file
+def extract_audio_track(video_path, output_dir=None):
+    """
+    Extract audio from a video file to a separate audio file
+    
+    Args:
+        video_path: Path to video file
+        output_dir: Directory to save the audio file (uses temp dir if None)
+        
+    Returns:
+        dict: Result with status and audio file path
+    """
+    try:
+        print(f"Extracting audio from: {video_path}")
+        use_temp_dir = output_dir is None
+        
+        if use_temp_dir:
+            # Use a temporary directory if no output_dir provided
+            output_dir = tempfile.mkdtemp()
+        
+        # Ensure the output directory exists
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Generate output filename
+        video_name = os.path.basename(video_path)
+        audio_name = os.path.splitext(video_name)[0] + ".m4a"
+        audio_path = os.path.join(output_dir, audio_name)
+        
+        # Extract audio using ffmpeg directly for more reliable extraction
+        try:
+            cmd = [
+                "ffmpeg", "-y", "-i", video_path,
+                "-vn",  # No video
+                "-acodec", "aac",  # AAC audio codec
+                "-b:a", "192k",  # Bitrate
+                "-f", "mp4",  # Force MP4 format
+                audio_path
+            ]
+            
+            print(f"Running command: {' '.join(cmd)}")
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+            
+            if os.path.exists(audio_path) and os.path.getsize(audio_path) > 0:
+                print(f"Successfully extracted audio to: {audio_path}")
+                return {
+                    "status": "success",
+                    "audio_path": audio_path,
+                    "is_temp": use_temp_dir,
+                    "temp_dir": output_dir if use_temp_dir else None
+                }
+            else:
+                print(f"Audio extraction failed or produced empty file for: {video_path}")
+                return {
+                    "status": "error",
+                    "message": "Audio extraction failed or produced empty file"
+                }
+                
+        except subprocess.SubprocessError as e:
+            print(f"FFmpeg error while extracting audio: {str(e)}")
+            
+            # Fallback to MoviePy for extraction
+            if MOVIEPY_AVAILABLE:
+                try:
+                    print(f"Attempting audio extraction with MoviePy for: {video_path}")
+                    video = mp.VideoFileClip(video_path)
+                    if video.audio is not None:
+                        video.audio.write_audiofile(audio_path)
+                        video.close()
+                        
+                        if os.path.exists(audio_path) and os.path.getsize(audio_path) > 0:
+                            print(f"Successfully extracted audio with MoviePy to: {audio_path}")
+                            return {
+                                "status": "success",
+                                "audio_path": audio_path,
+                                "is_temp": use_temp_dir,
+                                "temp_dir": output_dir if use_temp_dir else None
+                            }
+                except Exception as mp_err:
+                    print(f"MoviePy fallback also failed: {str(mp_err)}")
+            
+            return {
+                "status": "error",
+                "message": f"Audio extraction failed: {str(e)}"
+            }
+                
+    except Exception as e:
+        print(f"Error in audio extraction: {str(e)}")
+        print(traceback.format_exc())
+        return {
+            "status": "error",
+            "message": f"Error in audio extraction: {str(e)}"
+        }
+
 @error_handler
 def assemble_video(sequence, target_resolution=(1080, 1920), output_dir=None, progress_callback=None):
     """
@@ -206,263 +302,363 @@ def assemble_video(sequence, target_resolution=(1080, 1920), output_dir=None, pr
             "message": "MoviePy is not available. Please run check_dependencies.py"
         }
     
-    # Default output directory
-    if output_dir is None:
-        output_dir = Path(app_root) / "output"
-    else:
-        output_dir = Path(output_dir)
+    # Create a temp directory for extracted audio files
+    temp_dirs = []
     
-    # Create output directory if it doesn't exist
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Generate output filename with timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = str(output_dir / f"assembled_video_{timestamp}.mp4")
-    
-    # Report progress
-    if progress_callback:
-        progress_callback(0, "Validating input files")
-    
-    # Validate sequence
-    if not sequence or not isinstance(sequence, list):
-        return {
-            "status": "error", 
-            "message": "Invalid sequence format. Expected a list of video segments."
-        }
-    
-    # Validate each segment and check files
-    clips_info = []
-    missing_files = []
-    
-    for i, item in enumerate(sequence):
-        if progress_callback:
-            progress_callback(i / len(sequence) * 10, f"Checking files for segment {i+1}/{len(sequence)}")
+    try:
+        # Default output directory
+        if output_dir is None:
+            output_dir = Path(app_root) / "output"
+        else:
+            output_dir = Path(output_dir)
         
-        if not isinstance(item, dict):
+        # Create output directory if it doesn't exist
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate output filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_path = str(output_dir / f"assembled_video_{timestamp}.mp4")
+        
+        # Report progress
+        if progress_callback:
+            progress_callback(0, "Validating input files")
+        
+        # Validate sequence
+        if not sequence or not isinstance(sequence, list):
             return {
                 "status": "error", 
-                "message": f"Invalid segment format at position {i}. Expected a dictionary."
+                "message": "Invalid sequence format. Expected a list of video segments."
             }
         
-        if item["type"] == "aroll_full":
-            # Full A-Roll segment (video + audio)
-            aroll_path = item.get("aroll_path")
-            aroll_check = check_file(aroll_path, "video")
-            
-            if aroll_check["status"] == "error":
-                missing_files.append(aroll_check["message"])
-                continue
-                
-            clips_info.append({
-                "index": i,
-                "type": "aroll_full",
-                "aroll_path": aroll_path,
-                "aroll_info": aroll_check
-            })
-            
-        elif item["type"] == "broll_with_aroll_audio":
-            # B-Roll video with A-Roll audio
-            broll_path = item.get("broll_path")
-            aroll_path = item.get("aroll_path")
-            
-            broll_check = check_file(broll_path, "video")
-            aroll_check = check_file(aroll_path, "video")
-            
-            if broll_check["status"] == "error":
-                missing_files.append(broll_check["message"])
-            
-            if aroll_check["status"] == "error":
-                missing_files.append(aroll_check["message"])
-                
-            if broll_check["status"] == "error" or aroll_check["status"] == "error":
-                continue
-                
-            clips_info.append({
-                "index": i,
-                "type": "broll_with_aroll_audio",
-                "broll_path": broll_path,
-                "aroll_path": aroll_path,
-                "broll_info": broll_check,
-                "aroll_info": aroll_check
-            })
-    
-    # Check if any files are missing
-    if missing_files:
-        return {
-            "status": "error",
-            "message": "Missing files required for video assembly",
-            "missing_files": missing_files
-        }
-    
-    # Report progress
-    if progress_callback:
-        progress_callback(10, "Processing video clips")
-    
-    # Process clips
-    processed_clips = []
-    for i, clip_info in enumerate(clips_info):
-        try:
+        # Validate each segment and check files
+        clips_info = []
+        missing_files = []
+        
+        # Pre-extract all audio from A-Roll clips for better reliability
+        aroll_audio_map = {}  # Maps aroll_path to extracted audio path
+        
+        for i, item in enumerate(sequence):
             if progress_callback:
-                progress_callback(10 + (i / len(clips_info) * 40), f"Processing clip {i+1}/{len(clips_info)}")
+                progress_callback(i / len(sequence) * 5, f"Pre-extracting audio for segment {i+1}/{len(sequence)}")
             
-            if clip_info["type"] == "aroll_full":
-                # Load A-Roll clip
-                aroll_clip = mp.VideoFileClip(clip_info["aroll_path"])
+            if not isinstance(item, dict):
+                return {
+                    "status": "error", 
+                    "message": f"Invalid segment format at position {i}. Expected a dictionary."
+                }
+            
+            # Extract audio from A-Roll clips
+            aroll_path = item.get("aroll_path")
+            if aroll_path and aroll_path not in aroll_audio_map:
+                # Extract audio to a separate file
+                audio_result = extract_audio_track(aroll_path)
                 
-                # Resize to target resolution
-                aroll_clip = resize_video(aroll_clip, target_resolution)
-                processed_clips.append(aroll_clip)
-                
-            elif clip_info["type"] == "broll_with_aroll_audio":
-                # Load B-Roll clip
-                broll_path = clip_info["broll_path"]
-                aroll_path = clip_info["aroll_path"]
-                
-                # Check if B-Roll is an image (by extension)
-                is_image = broll_path.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))
-                
-                # Load A-Roll to get audio and duration
-                aroll_clip = mp.VideoFileClip(aroll_path)
-                aroll_duration = aroll_clip.duration
-                
-                # More robust audio extraction from A-Roll
-                aroll_audio = None
-                try:
-                    # First try direct audio extraction
-                    if aroll_clip.audio is not None:
-                        # Try to validate audio
-                        if has_valid_audio(aroll_clip):
-                            aroll_audio = aroll_clip.audio
-                            print(f"Successfully extracted audio from A-Roll clip {aroll_path}")
-                        else:
-                            print(f"A-Roll clip {aroll_path} has invalid audio, trying alternative extraction")
-                            
-                    # If the first method failed, try alternative extraction
-                    if aroll_audio is None:
-                        # Try extracting just the audio track
-                        try:
-                            aroll_audio = mp.AudioFileClip(aroll_path)
-                            if has_valid_audio(mp.VideoFileClip(aroll_path).set_audio(aroll_audio)):
-                                print(f"Successfully extracted audio using AudioFileClip from {aroll_path}")
-                            else:
-                                raise ValueError("Extracted audio is invalid")
-                        except Exception as audio_err:
-                            print(f"Audio extraction error: {str(audio_err)}")
-                            # Create silent audio as last resort
-                            aroll_audio = mp.AudioClip(lambda t: [0, 0], duration=aroll_duration)
-                            print(f"Using silent audio for A-Roll clip {aroll_path}")
-                except Exception as e:
-                    print(f"Error during audio processing: {str(e)}")
-                    # Create silent audio as fallback
-                    aroll_audio = mp.AudioClip(lambda t: [0, 0], duration=aroll_duration)
-                    print(f"Using silent audio fallback for A-Roll clip {aroll_path}")
-                
-                if is_image:
-                    # Create video from image with A-Roll duration
-                    broll_clip = mp.ImageClip(broll_path, duration=aroll_duration)
-                else:
-                    # Load B-Roll video
-                    broll_clip = mp.VideoFileClip(broll_path)
+                if audio_result["status"] == "success":
+                    aroll_audio_map[aroll_path] = audio_result["audio_path"]
                     
-                    # Handle duration mismatch
-                    if broll_clip.duration < aroll_duration:
-                        # Loop B-Roll if it's shorter
-                        broll_clip = broll_clip.loop(duration=aroll_duration)
-                    elif broll_clip.duration > aroll_duration:
-                        # Trim B-Roll if it's longer
-                        broll_clip = broll_clip.subclip(0, aroll_duration)
+                    # Keep track of temp dirs to clean up later
+                    if audio_result.get("is_temp", False) and audio_result.get("temp_dir"):
+                        temp_dirs.append(audio_result["temp_dir"])
+                else:
+                    print(f"Warning: Failed to extract audio from {aroll_path}: {audio_result.get('message', 'Unknown error')}")
+        
+        # Now validate and process the sequence
+        for i, item in enumerate(sequence):
+            if progress_callback:
+                progress_callback(5 + (i / len(sequence) * 5), f"Checking files for segment {i+1}/{len(sequence)}")
+            
+            if item["type"] == "aroll_full":
+                # Full A-Roll segment (video + audio)
+                aroll_path = item.get("aroll_path")
+                aroll_check = check_file(aroll_path, "video")
                 
-                # Resize B-Roll to target resolution
-                broll_clip = resize_video(broll_clip, target_resolution)
+                if aroll_check["status"] == "error":
+                    missing_files.append(aroll_check["message"])
+                    continue
+                    
+                # Get the extracted audio path if available
+                aroll_audio_path = aroll_audio_map.get(aroll_path)
                 
-                # Add A-Roll audio to B-Roll
-                broll_clip = broll_clip.set_audio(aroll_audio)
-                processed_clips.append(broll_clip)
+                clips_info.append({
+                    "index": i,
+                    "type": "aroll_full",
+                    "aroll_path": aroll_path,
+                    "aroll_audio_path": aroll_audio_path,
+                    "aroll_info": aroll_check
+                })
                 
-                # Close A-Roll clip
-                aroll_clip.close()
+            elif item["type"] == "broll_with_aroll_audio":
+                # B-Roll video with A-Roll audio
+                broll_path = item.get("broll_path")
+                aroll_path = item.get("aroll_path")
                 
+                broll_check = check_file(broll_path, "video")
+                aroll_check = check_file(aroll_path, "video")
+                
+                if broll_check["status"] == "error":
+                    missing_files.append(broll_check["message"])
+                
+                if aroll_check["status"] == "error":
+                    missing_files.append(aroll_check["message"])
+                    
+                if broll_check["status"] == "error" or aroll_check["status"] == "error":
+                    continue
+                
+                # Get the extracted audio path if available
+                aroll_audio_path = aroll_audio_map.get(aroll_path)
+                    
+                clips_info.append({
+                    "index": i,
+                    "type": "broll_with_aroll_audio",
+                    "broll_path": broll_path,
+                    "aroll_path": aroll_path,
+                    "aroll_audio_path": aroll_audio_path,
+                    "broll_info": broll_check,
+                    "aroll_info": aroll_check
+                })
+        
+        # Check if any files are missing
+        if missing_files:
+            # Clean up temp dirs
+            for temp_dir in temp_dirs:
+                try:
+                    shutil.rmtree(temp_dir)
+                except Exception as e:
+                    print(f"Error cleaning up temp dir {temp_dir}: {str(e)}")
+                    
+            return {
+                "status": "error",
+                "message": "Missing files required for video assembly",
+                "missing_files": missing_files
+            }
+        
+        # Report progress
+        if progress_callback:
+            progress_callback(10, "Processing video clips")
+        
+        # Process clips
+        processed_clips = []
+        for i, clip_info in enumerate(clips_info):
+            try:
+                if progress_callback:
+                    progress_callback(10 + (i / len(clips_info) * 40), f"Processing clip {i+1}/{len(clips_info)}")
+                
+                if clip_info["type"] == "aroll_full":
+                    # Load A-Roll clip
+                    aroll_clip = mp.VideoFileClip(clip_info["aroll_path"])
+                    
+                    # If we have extracted audio, use it
+                    if clip_info.get("aroll_audio_path") and os.path.exists(clip_info["aroll_audio_path"]):
+                        try:
+                            # Load the extracted audio
+                            aroll_audio = mp.AudioFileClip(clip_info["aroll_audio_path"])
+                            
+                            # Use the extracted audio with proper duration matching
+                            if aroll_audio.duration > aroll_clip.duration:
+                                aroll_audio = aroll_audio.subclip(0, aroll_clip.duration)
+                            elif aroll_audio.duration < aroll_clip.duration:
+                                # If audio is shorter, extend it by looping or using silent audio
+                                print(f"Audio duration {aroll_audio.duration} is shorter than video {aroll_clip.duration}, extending audio")
+                                silent_audio = mp.AudioClip(lambda t: [0, 0], duration=aroll_clip.duration - aroll_audio.duration)
+                                aroll_audio = mp.concatenate_audioclips([aroll_audio, silent_audio])
+                            
+                            # Set the audio to the clip
+                            aroll_clip = aroll_clip.set_audio(aroll_audio)
+                            print(f"Successfully applied extracted audio to A-Roll clip")
+                        except Exception as audio_err:
+                            print(f"Error applying extracted audio to A-Roll: {str(audio_err)}")
+                            # Continue with original audio
+                    
+                    # Resize to target resolution
+                    aroll_clip = resize_video(aroll_clip, target_resolution)
+                    processed_clips.append(aroll_clip)
+                    
+                elif clip_info["type"] == "broll_with_aroll_audio":
+                    # Load B-Roll clip
+                    broll_path = clip_info["broll_path"]
+                    aroll_path = clip_info["aroll_path"]
+                    
+                    # Check if B-Roll is an image (by extension)
+                    is_image = broll_path.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))
+                    
+                    # If we have extracted A-Roll audio, use it directly
+                    if clip_info.get("aroll_audio_path") and os.path.exists(clip_info["aroll_audio_path"]):
+                        try:
+                            # Load the extracted audio
+                            aroll_audio = mp.AudioFileClip(clip_info["aroll_audio_path"])
+                            aroll_duration = aroll_audio.duration
+                            print(f"Successfully loaded extracted A-Roll audio: {clip_info['aroll_audio_path']} (duration: {aroll_duration}s)")
+                        except Exception as audio_err:
+                            print(f"Error loading extracted audio: {str(audio_err)}")
+                            
+                            # Fallback: Load A-Roll to get duration and try to extract audio directly
+                            aroll_clip = mp.VideoFileClip(aroll_path)
+                            aroll_duration = aroll_clip.duration
+                            
+                            # Try to get audio from A-Roll clip
+                            if has_valid_audio(aroll_clip):
+                                aroll_audio = aroll_clip.audio
+                                print(f"Using direct audio from A-Roll clip")
+                            else:
+                                # Create silent audio as last resort
+                                print(f"Creating silent audio for A-Roll clip")
+                                aroll_audio = mp.AudioClip(lambda t: [0, 0], duration=aroll_duration)
+                            
+                            # Close A-Roll clip
+                            aroll_clip.close()
+                        except Exception as e:
+                            print(f"Error during audio processing: {str(e)}")
+                            # Create silent audio as fallback
+                            aroll_audio = mp.AudioClip(lambda t: [0, 0], duration=aroll_duration)
+                            print(f"Using silent audio fallback for A-Roll clip {aroll_path}")
+                        
+                        # Close A-Roll clip
+                        aroll_clip.close()
+                    
+                    if is_image:
+                        # Create video from image with A-Roll duration
+                        broll_clip = mp.ImageClip(broll_path, duration=aroll_duration)
+                    else:
+                        # Load B-Roll video
+                        broll_clip = mp.VideoFileClip(broll_path)
+                        
+                        # Handle duration mismatch
+                        if broll_clip.duration < aroll_duration:
+                            # Loop B-Roll if it's shorter
+                            broll_clip = broll_clip.loop(duration=aroll_duration)
+                        elif broll_clip.duration > aroll_duration:
+                            # Trim B-Roll if it's longer
+                            broll_clip = broll_clip.subclip(0, aroll_duration)
+                    
+                    # Resize B-Roll to target resolution
+                    broll_clip = resize_video(broll_clip, target_resolution)
+                    
+                    # Add A-Roll audio to B-Roll
+                    broll_clip = broll_clip.set_audio(aroll_audio)
+                    processed_clips.append(broll_clip)
+                    
+            except Exception as e:
+                # Clean up processed clips
+                for clip in processed_clips:
+                    try:
+                        clip.close()
+                    except:
+                        pass
+                
+                # Clean up temp dirs
+                for temp_dir in temp_dirs:
+                    try:
+                        shutil.rmtree(temp_dir)
+                    except Exception as temp_err:
+                        print(f"Error cleaning up temp dir {temp_dir}: {str(temp_err)}")
+                        
+                return {
+                    "status": "error",
+                    "message": f"Error processing clip {i+1}: {str(e)}",
+                    "traceback": traceback.format_exc()
+                }
+        
+        # Report progress
+        if progress_callback:
+            progress_callback(50, "Concatenating clips")
+        
+        # Concatenate clips if we have any
+        if not processed_clips:
+            # Clean up temp dirs
+            for temp_dir in temp_dirs:
+                try:
+                    shutil.rmtree(temp_dir)
+                except Exception as e:
+                    print(f"Error cleaning up temp dir {temp_dir}: {str(e)}")
+                    
+            return {
+                "status": "error",
+                "message": "No valid clips were created"
+            }
+        
+        try:
+            # Verify all clips have valid audio before concatenating
+            for i, clip in enumerate(processed_clips):
+                if not has_valid_audio(clip):
+                    print(f"Warning: Clip {i+1} has no valid audio, replacing with silent audio")
+                    # Create silent audio for the clip
+                    clip = clip.set_audio(mp.AudioClip(lambda t: [0, 0], duration=clip.duration))
+                    processed_clips[i] = clip
+            
+            # Concatenate all clips
+            final_clip = mp.concatenate_videoclips(processed_clips)
+            
+            # Report progress
+            if progress_callback:
+                progress_callback(60, "Rendering final video")
+            
+            # Use simpler params for more compatibility
+            final_clip.write_videofile(
+                output_path,
+                codec="libx264",
+                audio_codec="aac",
+                temp_audiofile="temp-audio.m4a",
+                remove_temp=True,
+                threads=2,  # Reduce threads to avoid memory issues
+                fps=30,
+                verbose=False,
+                ffmpeg_params=["-strict", "-2"]  # Add more compatible params
+            )
+            
+            # Report progress
+            if progress_callback:
+                progress_callback(100, "Video assembly complete")
+            
+            # Clean up
+            for clip in processed_clips:
+                clip.close()
+            final_clip.close()
+            
+            # Clean up temp dirs
+            for temp_dir in temp_dirs:
+                try:
+                    shutil.rmtree(temp_dir)
+                except Exception as e:
+                    print(f"Error cleaning up temp dir {temp_dir}: {str(e)}")
+            
+            return {
+                "status": "success",
+                "output_path": output_path,
+                "duration": final_clip.duration,
+                "resolution": target_resolution
+            }
+        
         except Exception as e:
-            # Clean up processed clips
+            # Clean up
             for clip in processed_clips:
                 try:
                     clip.close()
                 except:
                     pass
-                    
+            
+            # Clean up temp dirs
+            for temp_dir in temp_dirs:
+                try:
+                    shutil.rmtree(temp_dir)
+                except Exception as temp_err:
+                    print(f"Error cleaning up temp dir {temp_dir}: {str(temp_err)}")
+            
             return {
                 "status": "error",
-                "message": f"Error processing clip {i+1}: {str(e)}",
+                "message": f"Error during final video assembly: {str(e)}",
                 "traceback": traceback.format_exc()
             }
-    
-    # Report progress
-    if progress_callback:
-        progress_callback(50, "Concatenating clips")
-    
-    # Concatenate clips if we have any
-    if not processed_clips:
-        return {
-            "status": "error",
-            "message": "No valid clips were created"
-        }
-    
-    try:
-        # Verify all clips have valid audio before concatenating
-        for i, clip in enumerate(processed_clips):
-            if not has_valid_audio(clip):
-                print(f"Warning: Clip {i+1} has no valid audio, replacing with silent audio")
-                # Create silent audio for the clip
-                clip = clip.set_audio(mp.AudioClip(lambda t: [0, 0], duration=clip.duration))
-                processed_clips[i] = clip
-        
-        # Concatenate all clips
-        final_clip = mp.concatenate_videoclips(processed_clips)
-        
-        # Report progress
-        if progress_callback:
-            progress_callback(60, "Rendering final video")
-        
-        # Use simpler params for more compatibility
-        final_clip.write_videofile(
-            output_path,
-            codec="libx264",
-            audio_codec="aac",
-            temp_audiofile="temp-audio.m4a",
-            remove_temp=True,
-            threads=2,  # Reduce threads to avoid memory issues
-            fps=30,
-            verbose=False,
-            ffmpeg_params=["-strict", "-2"]  # Add more compatible params
-        )
-        
-        # Report progress
-        if progress_callback:
-            progress_callback(100, "Video assembly complete")
-        
-        # Clean up
-        for clip in processed_clips:
-            clip.close()
-        final_clip.close()
-        
-        return {
-            "status": "success",
-            "output_path": output_path,
-            "duration": final_clip.duration,
-            "resolution": target_resolution
-        }
-    
     except Exception as e:
-        # Clean up
-        for clip in processed_clips:
+        # Clean up temp dirs
+        for temp_dir in temp_dirs:
             try:
-                clip.close()
-            except:
-                pass
-        
+                shutil.rmtree(temp_dir)
+            except Exception as temp_err:
+                print(f"Error cleaning up temp dir {temp_dir}: {str(temp_err)}")
+                
         return {
             "status": "error",
-            "message": f"Error during final video assembly: {str(e)}",
+            "message": f"Unexpected error during video assembly: {str(e)}",
             "traceback": traceback.format_exc()
         }
 

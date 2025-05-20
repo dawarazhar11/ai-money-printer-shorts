@@ -1,83 +1,115 @@
 #!/usr/bin/env python3
-import subprocess
-import sys
+"""
+Check and install dependencies for video processing
+"""
+
 import os
-import pkg_resources
+import sys
+import subprocess
+import importlib.util
 
-def check_pip():
-    """Check if pip is installed and accessible"""
+# List of required packages with versions
+REQUIRED_PACKAGES = [
+    ("moviepy", "1.0.3"),
+    ("numpy", None),  # Let pip decide version
+    ("ffmpeg-python", "0.2.0"),  # Added for direct ffmpeg access
+    ("pillow", None)  # For image processing
+]
+
+def check_package(package_name, required_version=None):
+    """Check if a package is installed and get its version"""
     try:
-        import pip
-        print("✅ pip is installed")
-        return True
-    except ImportError:
-        print("❌ pip is not installed")
+        spec = importlib.util.find_spec(package_name)
+        if spec is None:
+            print(f"❌ {package_name} is not installed")
+            return False
+
+        if required_version:
+            # Try to get the installed version
+            try:
+                package = importlib.import_module(package_name)
+                installed_version = getattr(package, "__version__", "unknown")
+                print(f"✅ {package_name} is installed (version: {installed_version})")
+                return True
+            except ImportError:
+                print(f"✅ {package_name} is installed but couldn't determine version")
+                return True
+        else:
+            print(f"✅ {package_name} is installed")
+            return True
+    except Exception as e:
+        print(f"❌ Error checking {package_name}: {str(e)}")
         return False
 
-def check_virtual_env():
-    """Check if running in a virtual environment"""
-    is_venv = sys.prefix != sys.base_prefix
-    if is_venv:
-        print(f"✅ Running in virtual environment: {sys.prefix}")
-    else:
-        print("❌ Not running in a virtual environment")
-    return is_venv
-
-def install_package(package_name, version=None):
-    """Install a package using pip"""
-    pkg_spec = f"{package_name}=={version}" if version else package_name
+def check_ffmpeg():
+    """Check if ffmpeg is available"""
     try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg_spec])
-        print(f"✅ Installed {pkg_spec}")
-        return True
-    except subprocess.CalledProcessError:
-        print(f"❌ Failed to install {pkg_spec}")
+        result = subprocess.run(
+            ["ffmpeg", "-version"], 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        if result.returncode == 0:
+            version_line = result.stdout.strip().split('\n')[0]
+            print(f"✅ ffmpeg is installed: {version_line}")
+            return True
+        else:
+            print("❌ ffmpeg is installed but not working correctly")
+            return False
+    except FileNotFoundError:
+        print("❌ ffmpeg not found. Please install ffmpeg.")
         return False
 
-def check_and_install_dependencies():
-    """Check and install required dependencies for video processing"""
-    dependencies = {
-        "moviepy": "1.0.3",
-        "numpy": "1.26.4",
-        "ffmpeg-python": "0.2.0",
-        "decorator": "4.4.2"
-    }
+def install_packages():
+    """Install all required packages"""
+    for package, version in REQUIRED_PACKAGES:
+        spec = version if version else ""
+        package_spec = f"{package}{spec}"
+        
+        try:
+            subprocess.check_call([
+                sys.executable, "-m", "pip", "install", package_spec
+            ])
+            print(f"✅ Successfully installed {package_spec}")
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Failed to install {package_spec}: {str(e)}")
+
+def main():
+    print("Checking dependencies for video processing...")
     
     # Check installed packages
-    installed_packages = {pkg.key: pkg.version for pkg in pkg_resources.working_set}
-    missing_or_wrong_version = []
+    missing_packages = []
+    for package, version in REQUIRED_PACKAGES:
+        if not check_package(package, version):
+            missing_packages.append((package, version))
     
-    for package, version in dependencies.items():
-        if package in installed_packages:
-            installed_version = installed_packages[package]
-            if installed_version != version:
-                print(f"⚠️ {package} version mismatch: installed {installed_version}, required {version}")
-                missing_or_wrong_version.append((package, version))
-            else:
-                print(f"✅ {package} {version} is installed")
-        else:
-            print(f"❌ {package} is not installed")
-            missing_or_wrong_version.append((package, version))
+    # Check ffmpeg
+    ffmpeg_available = check_ffmpeg()
     
-    # Install missing packages
-    for package, version in missing_or_wrong_version:
-        install_package(package, version)
+    if missing_packages:
+        print("\nMissing packages:")
+        for package, version in missing_packages:
+            print(f"  - {package}" + (f" (version {version})" if version else ""))
+        
+        # Ask to install
+        install = input("\nDo you want to install missing packages? (y/n): ").lower() == 'y'
+        if install:
+            install_packages()
     
-    # Check if ffmpeg is available
-    try:
-        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True)
-        if result.returncode == 0:
-            print(f"✅ ffmpeg is installed: {result.stdout.splitlines()[0]}")
-        else:
-            print("❌ ffmpeg is not installed or not in PATH")
-            print("Please install ffmpeg: https://ffmpeg.org/download.html")
-    except FileNotFoundError:
-        print("❌ ffmpeg is not installed or not in PATH")
-        print("Please install ffmpeg: https://ffmpeg.org/download.html")
+    if not ffmpeg_available:
+        print("\nFFmpeg is required for video processing.")
+        print("Please install FFmpeg using your system's package manager:")
+        print("  - On macOS: brew install ffmpeg")
+        print("  - On Ubuntu/Debian: sudo apt-get install ffmpeg")
+        print("  - On Windows: Download from https://ffmpeg.org/download.html")
+    
+    if not missing_packages and ffmpeg_available:
+        print("\n✅ All dependencies are installed!")
+        return 0
+    else:
+        print("\n❌ Some dependencies are missing.")
+        return 1
 
 if __name__ == "__main__":
-    print("Checking dependencies for video processing...")
-    check_pip()
-    check_virtual_env()
-    check_and_install_dependencies()
-    print("Dependency check completed.") 
+    sys.exit(main()) 
