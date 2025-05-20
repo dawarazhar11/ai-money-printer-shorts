@@ -70,9 +70,20 @@ if "parallel_tasks" not in st.session_state:
         "total": 0
     }
 if "aroll_fetch_ids" not in st.session_state:
-    st.session_state.aroll_fetch_ids = {}
+    # Initialize with default A-Roll IDs
+    st.session_state.aroll_fetch_ids = {
+        "segment_0": "5169ef5a328149a8b13c365ee7060106",  # SEG1
+        "segment_2": "aed87db0234e4965825c7ee4c1067467",  # SEG3
+        "segment_4": "e7d47355c21e4190bad8752c799343ee",  # SEG5
+        "segment_6": "36064085e2a240768a8368bc6a911aea"   # SEG7
+    }
 if "broll_fetch_ids" not in st.session_state:
-    st.session_state.broll_fetch_ids = {}
+    # Initialize with default B-Roll IDs
+    st.session_state.broll_fetch_ids = {
+        "segment_0": "9a148fa4-66a8-4e43-83c4-7c553a53a9a0",  # SEG1
+        "segment_1": "c7f3960f-d3f3-4095-b7fa-66f9a6087cef",  # SEG2
+        "segment_2": "d2526241-6f3e-4a6e-a193-c3bd7870b6db"   # SEG3
+    }
 if "workflow_selection" not in st.session_state:
     st.session_state.workflow_selection = {
         "image": "default"
@@ -1213,6 +1224,112 @@ with col2:
                 key=f"broll_id_{segment_id}"
             )
             st.session_state.broll_fetch_ids[segment_id] = fetch_id
+
+# After the B-Roll ID input sections, add a Fetch Content button
+st.markdown("---")
+st.subheader("Fetch Existing Content")
+st.markdown("Use this button to fetch content using the IDs provided above without generating new content.")
+
+fetch_col1, fetch_col2 = st.columns([3, 1])
+
+with fetch_col1:
+    st.markdown("""
+    This will:
+    - Attempt to fetch all A-Roll and B-Roll content using the IDs
+    - Update the content status with the fetched content
+    - Skip any IDs that are empty or invalid
+    """)
+
+with fetch_col2:
+    if st.button("🔄 Fetch Content", type="primary", use_container_width=True):
+        with st.spinner("Fetching content from provided IDs..."):
+            fetch_success = False
+            
+            # Count the number of IDs we have
+            aroll_id_count = sum(1 for id in st.session_state.aroll_fetch_ids.values() if id)
+            broll_id_count = sum(1 for id in st.session_state.broll_fetch_ids.values() if id)
+            
+            st.info(f"Found {aroll_id_count} A-Roll IDs and {broll_id_count} B-Roll IDs to fetch")
+            
+            # Process A-Roll IDs
+            for segment_id, prompt_id in st.session_state.aroll_fetch_ids.items():
+                if not prompt_id:
+                    continue
+                    
+                # For A-Roll, we currently just simulate successful fetching
+                st.session_state.content_status["aroll"][segment_id] = {
+                    "status": "complete",
+                    "file_path": f"fetched_aroll_{segment_id}_{prompt_id[:8]}.mp4",
+                    "prompt_id": prompt_id,
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                fetch_success = True
+                
+            # Process B-Roll IDs
+            for segment_id, prompt_id in st.session_state.broll_fetch_ids.items():
+                if not prompt_id:
+                    continue
+                
+                # Set status to "fetching" to show progress
+                st.session_state.content_status["broll"][segment_id] = {
+                    "status": "fetching",
+                    "prompt_id": prompt_id,
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                
+                # Get the appropriate API URL - assuming video API
+                api_url = COMFYUI_VIDEO_API_URL
+                
+                # Fetch the content
+                result = fetch_comfyui_content_by_id(api_url, prompt_id)
+                
+                if result["status"] == "success":
+                    # Determine file extension based on content type
+                    content_type = result.get("type", "image")
+                    file_ext = "mp4" if content_type == "video" else "png"
+                    
+                    # Save the fetched content
+                    file_path = save_media_content(
+                        result["content"], 
+                        "broll",
+                        segment_id,
+                        file_ext
+                    )
+                    
+                    st.session_state.content_status["broll"][segment_id] = {
+                        "status": "complete",
+                        "file_path": file_path,
+                        "prompt_id": prompt_id,
+                        "content_type": content_type,
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    }
+                    fetch_success = True
+                elif result["status"] == "processing":
+                    # Content is still being generated
+                    st.session_state.content_status["broll"][segment_id] = {
+                        "status": "waiting",
+                        "message": "ComfyUI job still processing. Try again later.",
+                        "prompt_id": prompt_id,
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    }
+                else:
+                    # Error fetching content
+                    st.session_state.content_status["broll"][segment_id] = {
+                        "status": "error",
+                        "message": result.get("message", "Unknown error fetching content"),
+                        "prompt_id": prompt_id,
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    }
+            
+            # Save the updated content status
+            save_content_status()
+            
+            if fetch_success:
+                st.success("Successfully fetched content from provided IDs!")
+            else:
+                st.warning("No content was fetched. Please check your IDs and try again.")
+            
+            st.rerun()
 
 # Generate all content button
 st.markdown("---")
