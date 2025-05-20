@@ -7,6 +7,7 @@ import sys
 import shutil
 import subprocess
 from pathlib import Path
+import pkg_resources
 
 def print_header(text):
     """Print a formatted header"""
@@ -41,50 +42,23 @@ def check_venv():
         print_status("Not running in virtual environment", False)
         return False
 
-def check_python_packages():
-    """Check if the required Python packages are installed"""
-    print_header("Checking Python Packages")
-    
-    required_packages = [
-        "streamlit>=1.30.0",
-        "watchdog>=3.0.0",
-        "pillow>=10.0.0",
-        "pandas>=2.0.0",
-        "numpy>=1.24.0",
-        "matplotlib>=3.7.0",
-        "pydub>=0.25.1",
-        "moviepy>=1.0.3",
-        "python-dotenv>=1.0.0",
-        "requests>=2.28.1",
-        "opencv-python>=4.7.0",
-        "websocket-client>=1.6.0",
-        "ffmpeg-python"
-    ]
-    
-    missing_packages = []
-    
-    for package_req in required_packages:
-        package_name = package_req.split(">=")[0].split("==")[0]
-        try:
-            __import__(package_name.replace("-", "_"))
-            print_status(f"Package {package_name} is installed")
-        except ImportError:
-            print_status(f"Package {package_name} is NOT installed", False)
-            missing_packages.append(package_req)
-    
-    return missing_packages
+def check_package(package_name):
+    """Check if a package is installed and return its version if available"""
+    try:
+        package = pkg_resources.get_distribution(package_name)
+        return True, package.version
+    except pkg_resources.DistributionNotFound:
+        return False, None
 
-def check_ffmpeg():
-    """Check if ffmpeg is installed"""
-    print_header("Checking FFMPEG")
+def install_package(package_name, version=None):
+    """Install a package using pip"""
+    package_spec = package_name
+    if version:
+        package_spec = f"{package_name}=={version}"
     
-    success, output = run_command("which ffmpeg")
-    if success:
-        print_status(f"FFMPEG found at: {output.strip()}")
-        return True
-    else:
-        print_status("FFMPEG not found", False)
-        return False
+    print(f"Installing {package_spec}...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", package_spec])
+    return True
 
 def check_directory_structure():
     """Check if the directory structure is correct"""
@@ -115,102 +89,79 @@ def check_directory_structure():
         print_status("Not in the AI-Money-Printer-Shorts directory", False)
         return False
 
-def fix_missing_packages(missing_packages):
-    """Install missing Python packages"""
-    if not missing_packages:
-        print("No missing packages to install.")
-        return True
-    
-    print_header("Installing Missing Packages")
-    for package in missing_packages:
-        print(f"Installing {package}...")
-        success, output = run_command(f"pip install {package}")
-        if success:
-            print_status(f"Installed {package}")
-        else:
-            print_status(f"Failed to install {package}", False)
-            print(output)
-            return False
-    
-    return True
-
-def fix_ffmpeg():
-    """Install FFMPEG"""
-    print_header("Installing FFMPEG")
-    
-    if sys.platform == "darwin":  # Mac
-        success, output = run_command("brew install ffmpeg")
-        if success:
-            print_status("Installed FFMPEG via Homebrew")
-            return True
-        else:
-            print_status("Failed to install FFMPEG", False)
-            print(output)
-            return False
-    elif sys.platform == "linux":  # Linux
-        success, output = run_command("sudo apt-get update && sudo apt-get install -y ffmpeg")
-        if success:
-            print_status("Installed FFMPEG via apt")
-            return True
-        else:
-            print_status("Failed to install FFMPEG", False)
-            print(output)
-            return False
-    else:  # Windows or other
-        print("Please install FFMPEG manually:")
-        print("1. Download from https://ffmpeg.org/download.html")
-        print("2. Add to your PATH")
-        return False
-
 def main():
     """Main function"""
     print_header("AI Money Printer Environment Setup")
     
-    # Check if running in virtual environment
-    in_venv = check_venv()
+    # Check for Python version
+    py_version = sys.version.split()[0]
+    print(f"Python version: {py_version}")
     
-    # Check for required Python packages
-    missing_packages = check_python_packages()
+    # Check for critical packages
+    required_packages = {
+        "streamlit": "1.31.0",
+        "moviepy": "1.0.3",
+        "numpy": "1.24.3",
+        "opencv-python": "4.8.0.76",
+        "ffmpeg-python": None,  # Latest version
+        "pillow": None,  # Latest version
+        "requests": None,  # Latest version
+    }
     
-    # Check for FFMPEG
-    has_ffmpeg = check_ffmpeg()
+    missing_packages = []
+    outdated_packages = []
     
-    # Check directory structure
-    correct_structure = check_directory_structure()
+    # Check each package
+    for package_name, required_version in required_packages.items():
+        installed, version = check_package(package_name)
+        
+        if not installed:
+            print(f"❌ {package_name}: Not installed")
+            missing_packages.append((package_name, required_version))
+        elif required_version and version != required_version:
+            print(f"⚠️ {package_name}: Installed version {version}, required version {required_version}")
+            outdated_packages.append((package_name, required_version))
+        else:
+            print(f"✅ {package_name}: Version {version}")
     
-    # Fix issues if needed
-    if missing_packages and in_venv:
-        print("\nWould you like to install missing packages? (y/n)")
-        choice = input().lower()
-        if choice.startswith('y'):
-            fix_missing_packages(missing_packages)
-    
-    if not has_ffmpeg:
-        print("\nWould you like to install FFMPEG? (y/n)")
-        choice = input().lower()
-        if choice.startswith('y'):
-            fix_ffmpeg()
-    
-    # Print summary
-    print_header("Summary")
-    if not in_venv:
-        print("⚠️ Please activate your virtual environment:")
-        print("   source .venv/bin/activate")
-    
+    # Install missing packages
     if missing_packages:
-        print("⚠️ Some packages are missing. Install with:")
-        print(f"   pip install {' '.join(missing_packages)}")
+        print("\n----- Installing missing packages -----")
+        for package_name, version in missing_packages:
+            try:
+                install_package(package_name, version)
+                print(f"✅ Successfully installed {package_name}")
+            except Exception as e:
+                print(f"❌ Failed to install {package_name}: {str(e)}")
     
-    if not has_ffmpeg:
-        print("⚠️ FFMPEG is not installed. Please install it for video processing.")
+    # Update outdated packages if needed
+    if outdated_packages and input("\nUpdate outdated packages? (y/n): ").lower() == 'y':
+        print("\n----- Updating outdated packages -----")
+        for package_name, version in outdated_packages:
+            try:
+                install_package(package_name, version)
+                print(f"✅ Successfully updated {package_name} to version {version}")
+            except Exception as e:
+                print(f"❌ Failed to update {package_name}: {str(e)}")
     
-    if not correct_structure:
-        print("⚠️ Directory structure may be incorrect.")
-        print("   Make sure you are running from the app directory.")
+    # Check for ffmpeg
+    try:
+        ffmpeg_path = subprocess.check_output(["which", "ffmpeg"]).decode().strip()
+        print(f"\n✅ ffmpeg found at: {ffmpeg_path}")
+    except:
+        print("\n❌ ffmpeg not found. This is required for video processing.")
+        print("   Please install ffmpeg using your system package manager:")
+        print("   macOS: brew install ffmpeg")
+        print("   Ubuntu/Debian: sudo apt-get install ffmpeg")
+        print("   Windows: https://ffmpeg.org/download.html")
     
-    if in_venv and not missing_packages and has_ffmpeg and correct_structure:
-        print("🎉 Everything looks good! You can run the app with:")
-        print("   streamlit run pages/6_Video_Assembly.py")
+    print("\n===== Environment check complete =====")
+    
+    if not missing_packages and not outdated_packages:
+        print("✅ All required packages are installed correctly!")
+    else:
+        print("⚠️ Some packages were installed or updated.")
+        print("   Please restart your Streamlit app to apply changes.")
 
 if __name__ == "__main__":
     main() 

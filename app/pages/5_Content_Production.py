@@ -10,7 +10,11 @@ import threading
 from datetime import datetime
 
 # Add the app directory to Python path for relative imports
-sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+app_dir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+if app_dir not in sys.path:
+    sys.path.insert(0, app_dir)
+    print(f"Added {app_dir} to path")
+
 from components.navigation import render_workflow_navigation, render_step_navigation
 from components.progress import render_step_header
 from utils.session_state import get_settings, get_project_path, mark_step_complete
@@ -73,9 +77,9 @@ if "aroll_fetch_ids" not in st.session_state:
     # Initialize with default A-Roll IDs
     st.session_state.aroll_fetch_ids = {
         "segment_0": "5169ef5a328149a8b13c365ee7060106",  # SEG1
-        "segment_2": "aed87db0234e4965825c7ee4c1067467",  # SEG3
-        "segment_4": "e7d47355c21e4190bad8752c799343ee",  # SEG5
-        "segment_6": "36064085e2a240768a8368bc6a911aea"   # SEG7
+        "segment_1": "aed87db0234e4965825c7ee4c1067467",  # SEG2
+        "segment_2": "e7d47355c21e4190bad8752c799343ee",  # SEG3
+        "segment_3": "36064085e2a240768a8368bc6a911aea"   # SEG4
     }
 if "broll_fetch_ids" not in st.session_state:
     # Initialize with default B-Roll IDs

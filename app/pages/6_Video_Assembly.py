@@ -77,9 +77,8 @@ except ImportError as e:
         st.sidebar.title("Navigation")
         st.sidebar.warning("Navigation component failed to load")
     
-    def render_step_header(title, description):
-        st.header(title)
-        st.caption(description)
+    def render_step_header(step_number, step_name, total_steps):
+        st.header(f"{step_number}/{total_steps} {step_name}")
     
     def get_settings():
         return {}
@@ -411,9 +410,13 @@ def assemble_video(sequence, target_resolution=(1080, 1920)):
                     pass
         return None
 
-# Main UI
+# Video Assembly Page
+render_step_header(6, "Video Assembly", 8)
 st.title("🎬 Video Assembly")
-render_step_header(6, "Video Assembly")
+st.markdown("""
+Create your final video by assembling A-Roll and B-Roll segments.
+This step will combine all the visual assets into a single, coherent video.
+""")
 
 # Check if MoviePy is available
 if not MOVIEPY_AVAILABLE:
