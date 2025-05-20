@@ -726,8 +726,9 @@ def batch_process_broll_prompts():
     
     return prompt_ids, errors
 
-# Function for parallel content generation
-def generate_content_parallel(segments, broll_prompts, manual_upload, aroll_fetch_ids, broll_fetch_ids, workflow_selection):
+# Function for A-Roll content generation only
+def generate_aroll_content(segments, aroll_fetch_ids):
+    """Generate A-Roll content only"""
     # Ensure parallel_tasks is properly initialized first
     if "parallel_tasks" not in st.session_state:
         st.session_state.parallel_tasks = {
@@ -739,24 +740,20 @@ def generate_content_parallel(segments, broll_prompts, manual_upload, aroll_fetc
     # Reset progress tracking
     st.session_state.parallel_tasks["completed"] = 0
     
-    # Get all segments that need to be processed
+    # Get all A-Roll segments that need to be processed
     aroll_segments = [s for s in segments if isinstance(s, dict) and s.get("type") == "A-Roll"]
-    broll_segments = [s for s in segments if isinstance(s, dict) and s.get("type") == "B-Roll"]
     
     # Debug log for segments
-    print(f"Found {len(aroll_segments)} A-Roll and {len(broll_segments)} B-Roll segments")
+    print(f"A-Roll Generation: Found {len(aroll_segments)} A-Roll segments")
     
-    # Set minimum total tasks to 1 to avoid division by zero
-    if manual_upload:
-        total_tasks = len(aroll_segments)
-    else:
-        total_tasks = len(aroll_segments) + len(broll_segments)
+    # Set total tasks 
+    total_tasks = len(aroll_segments)
     
     # Ensure we have at least 1 task to avoid division by zero in progress calculations
     st.session_state.parallel_tasks["total"] = max(1, total_tasks)
     
     if total_tasks == 0:
-        print("Warning: No segments found for processing")
+        print("Warning: No A-Roll segments found for processing")
         # Mark as complete immediately if no segments to process
         st.session_state.parallel_tasks["completed"] = 1
         st.session_state.parallel_tasks["running"] = False
@@ -1505,9 +1502,10 @@ with fetch_col2:
             
             st.rerun()
 
-# Generate all content button
+# Generate content section
 st.markdown("---")
-st.subheader("Generate All Content")
+st.subheader("Generate Content")
+st.markdown("Choose which type of content to generate:")
 
 if st.session_state.parallel_tasks["running"]:
     progress_value = st.session_state.parallel_tasks["completed"] / max(1, st.session_state.parallel_tasks["total"])
@@ -1519,7 +1517,88 @@ if st.session_state.parallel_tasks["running"]:
     <meta http-equiv="refresh" content="3">
     """, unsafe_allow_html=True)
 else:
-    if st.button("🚀 Start Parallel Generation", type="primary", use_container_width=True):
+    # Create two columns for separate generation buttons
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### A-Roll Content")
+        st.markdown("Generate on-camera talking head video content")
+        
+        if st.button("🎬 Generate A-Roll Content", type="primary", key="generate_aroll", use_container_width=True):
+            # Capture all required data before starting the thread
+            temp_segments = st.session_state.segments.copy() if hasattr(st.session_state, 'segments') and st.session_state.segments else []
+            temp_aroll_fetch_ids = st.session_state.aroll_fetch_ids.copy() if hasattr(st.session_state, 'aroll_fetch_ids') and st.session_state.aroll_fetch_ids else {}
+            
+            # Print debug info
+            print(f"Debug - Starting A-Roll content generation")
+            
+            # Check if segments is empty
+            if not temp_segments:
+                st.error("No segments found. Please ensure you have completed the Script Segmentation step.")
+                st.stop()
+            
+            # Mark as running before starting the thread
+            st.session_state.parallel_tasks["running"] = True
+            
+            # Start the A-Roll content generation in a separate thread
+            thread = threading.Thread(
+                target=generate_aroll_content, 
+                args=(temp_segments, temp_aroll_fetch_ids)
+            )
+            thread.daemon = True
+            thread.start()
+            
+            # Refresh the page to show progress
+            st.rerun()
+    
+    with col2:
+        st.markdown("### B-Roll Content")
+        st.markdown("Generate visual content based on prompts")
+        
+        if st.session_state.manual_upload:
+            st.info("You've selected manual upload mode. Use the batch processing option or upload files manually.")
+            
+            if st.button("📤 Start Batch Processing", type="primary", key="batch_process", use_container_width=True):
+                with st.spinner("Submitting prompts to video server..."):
+                    prompt_ids, errors = batch_process_broll_prompts()
+                    if prompt_ids:
+                        st.success(f"Successfully submitted {len(prompt_ids)} prompts to video server!")
+                    if errors:
+                        st.error(f"Encountered {len(errors)} errors during submission.")
+                    st.rerun()
+        else:
+            if st.button("🎨 Generate B-Roll Content", type="primary", key="generate_broll", use_container_width=True):
+                # Capture all required data before starting the thread
+                temp_segments = st.session_state.segments.copy() if hasattr(st.session_state, 'segments') and st.session_state.segments else []
+                temp_broll_prompts = st.session_state.broll_prompts.copy() if hasattr(st.session_state, 'broll_prompts') and st.session_state.broll_prompts else {}
+                temp_broll_fetch_ids = st.session_state.broll_fetch_ids.copy() if hasattr(st.session_state, 'broll_fetch_ids') and st.session_state.broll_fetch_ids else {}
+                temp_workflow_selection = st.session_state.workflow_selection.copy() if hasattr(st.session_state, 'workflow_selection') and st.session_state.workflow_selection else {"image": "default"}
+                
+                # Print debug info
+                print(f"Debug - Starting B-Roll content generation")
+                
+                # Check if segments is empty
+                if not temp_segments:
+                    st.error("No segments found. Please ensure you have completed the Script Segmentation step.")
+                    st.stop()
+                
+                # Mark as running before starting the thread
+                st.session_state.parallel_tasks["running"] = True
+                
+                # Start the B-Roll content generation in a separate thread
+                thread = threading.Thread(
+                    target=generate_broll_content, 
+                    args=(temp_segments, temp_broll_prompts, temp_broll_fetch_ids, temp_workflow_selection)
+                )
+                thread.daemon = True
+                thread.start()
+                
+                # Refresh the page to show progress
+                st.rerun()
+    
+    # Still provide an option for parallel generation
+    st.markdown("### Generate Everything at Once")
+    if st.button("🚀 Start Parallel Generation", key="parallel_generation", help="Generate both A-Roll and B-Roll content simultaneously"):
         # Capture all required data before starting the thread
         temp_segments = st.session_state.segments.copy() if hasattr(st.session_state, 'segments') and st.session_state.segments else []
         temp_broll_prompts = st.session_state.broll_prompts.copy() if hasattr(st.session_state, 'broll_prompts') and st.session_state.broll_prompts else {}
@@ -1529,7 +1608,7 @@ else:
         temp_workflow_selection = st.session_state.workflow_selection.copy() if hasattr(st.session_state, 'workflow_selection') and st.session_state.workflow_selection else {"image": "default"}
         
         # Print debug info
-        print(f"Debug - Starting content generation with {len(temp_segments)} segments")
+        print(f"Debug - Starting parallel content generation with {len(temp_segments)} segments")
         if len(temp_segments) > 0:
             # Log segment types
             a_roll_count = len([s for s in temp_segments if isinstance(s, dict) and s.get("type") == "A-Roll"])
