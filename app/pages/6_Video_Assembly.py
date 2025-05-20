@@ -6,6 +6,7 @@ import numpy as np
 import time
 from datetime import datetime
 import cv2
+import traceback
 
 # Add the parent directory to the Python path to allow importing from app modules
 app_root = Path(__file__).parent.parent.absolute()
@@ -13,6 +14,34 @@ if str(app_root) not in sys.path:
     sys.path.insert(0, str(app_root))
     print(f"Added {app_root} to path")
     print("Successfully imported local modules")
+
+# Now import our helper modules
+try:
+    from utils.video.assembly import (
+        assemble_video as helper_assemble_video,
+        check_file,
+        MOVIEPY_AVAILABLE
+    )
+    from utils.video.simple_assembly import simple_assemble_video
+except ImportError as e:
+    print(f"Error importing video assembly module: {str(e)}")
+    # Alternative import paths in case the first one fails
+    try:
+        sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from utils.video.assembly import (
+            assemble_video as helper_assemble_video,
+            check_file,
+            MOVIEPY_AVAILABLE
+        )
+        from utils.video.simple_assembly import simple_assemble_video
+        print("Successfully imported video assembly module using alternative path")
+    except ImportError as e2:
+        print(f"Alternative import also failed: {str(e2)}")
+        # Create fallback values if import fails
+        helper_assemble_video = None
+        check_file = None
+        MOVIEPY_AVAILABLE = False
+        simple_assemble_video = None
 
 # Try to import MoviePy, show helpful error if not available
 try:
@@ -39,6 +68,7 @@ from utils.session_state import get_settings, get_project_path, mark_step_comple
 # Rest of the imports
 import json
 from pathlib import Path
+import subprocess
 
 # Set page configuration
 st.set_page_config(
@@ -158,211 +188,263 @@ def resize_video(clip, target_resolution=(1080, 1920)):
         
     return final_clip.set_duration(clip.duration)
 
-# Function to create assembly sequence
-def create_assembly_sequence(segments, content_status):
-    """Create a sequence for video assembly based on available segments"""
-    assembly_sequence = []
-    aroll_segments = [s for s in segments if isinstance(s, dict) and s.get("type") == "A-Roll"]
-    broll_segments = [s for s in segments if isinstance(s, dict) and s.get("type") == "B-Roll"]
+def get_aroll_filepath(segment_id, segment_data):
+    """
+    Get the filepath for an A-Roll segment, supporting both naming formats
     
-    # Count how many segments have completed content
-    aroll_available = [f"segment_{i}" for i in range(len(aroll_segments)) 
-                      if f"segment_{i}" in content_status["aroll"] and 
-                      content_status["aroll"][f"segment_{i}"].get("status") == "complete"]
-    
-    broll_available = [f"segment_{i}" for i in range(len(broll_segments)) 
-                      if f"segment_{i}" in content_status["broll"] and 
-                      content_status["broll"][f"segment_{i}"].get("status") == "complete"]
-    
-    # Basic validation
-    if not aroll_available:
-        return {"status": "error", "message": "No completed A-Roll segments found."}
-    
-    # Create the assembly sequence
-    # Start with the first A-Roll segment
-    assembly_sequence.append({
-        "type": "aroll_full",
-        "segment_id": aroll_available[0],
-        "index": 0,
-        "file_path": content_status["aroll"][aroll_available[0]].get("file_path")
-    })
-    
-    # Determine how many B-Roll + A-Roll audio segments we can create
-    num_broll_with_aroll_audio = min(len(broll_available), len(aroll_available) - 1)
-    
-    # Add B-Roll visuals with A-Roll audio combinations
-    for i in range(num_broll_with_aroll_audio):
-        broll_seg_id = broll_available[i]
-        aroll_seg_id = aroll_available[i + 1]  # Skip the first A-Roll as it's used fully
+    Args:
+        segment_id: ID of the segment (e.g., 'segment_0')
+        segment_data: Data for the segment
         
-        assembly_sequence.append({
-            "type": "broll_with_aroll_audio",
-            "broll_segment_id": broll_seg_id,
-            "aroll_segment_id": aroll_seg_id,
-            "broll_index": i,
-            "aroll_index": i + 1,
-            "broll_file_path": content_status["broll"][broll_seg_id].get("file_path"),
-            "aroll_file_path": content_status["aroll"][aroll_seg_id].get("file_path")
-        })
+    Returns:
+        str: Path to the A-Roll file if found, None otherwise
+    """
+    # Check the file path in the content status
+    if "file_path" in segment_data:
+        file_path = segment_data["file_path"]
+        if os.path.exists(file_path):
+            return file_path
     
-    # Add remaining A-Roll segments (if any)
-    for i in range(num_broll_with_aroll_audio + 1, len(aroll_available)):
-        aroll_seg_id = aroll_available[i]
-        
-        assembly_sequence.append({
-            "type": "aroll_full",
-            "segment_id": aroll_seg_id,
-            "index": i,
-            "file_path": content_status["aroll"][aroll_seg_id].get("file_path")
-        })
+    # Try alternative formats if the primary file path doesn't exist
+    segment_num = segment_id.split('_')[-1]
+    prompt_id = segment_data.get('prompt_id', '')
     
-    return {"status": "success", "sequence": assembly_sequence}
+    # Different file naming patterns to try
+    patterns = [
+        # Original expected format (short ID)
+        f"media/a-roll/fetched_aroll_segment_{segment_num}_{prompt_id[:8]}.mp4",
+        # Full path with short ID
+        f"{app_root}/media/a-roll/fetched_aroll_segment_{segment_num}_{prompt_id[:8]}.mp4",
+        # HeyGen format
+        f"media/a-roll/heygen_{prompt_id}.mp4",
+        # Full path with HeyGen format
+        f"{app_root}/media/a-roll/heygen_{prompt_id}.mp4"
+    ]
+    
+    # Try each pattern
+    for pattern in patterns:
+        if os.path.exists(pattern):
+            print(f"Found A-Roll file: {pattern}")
+            return pattern
+            
+    print(f"A-Roll file not found for {segment_id} with prompt_id {prompt_id}")
+    return None
 
-# Function to assemble video based on sequence
-def assemble_video(sequence, target_resolution=(1080, 1920)):
-    """Assemble video clips according to the sequence"""
-    # Check if MoviePy is available first
-    if not MOVIEPY_AVAILABLE:
-        st.error("Cannot assemble video: MoviePy is not available.")
-        return None
-        
-    try:
-        clips = []
-        missing_files = []
-        
-        for item in sequence:
-            if item["type"] == "aroll_full":
-                # Full A-Roll segment (video + audio)
-                file_path = item["file_path"]
-                if os.path.exists(file_path):
-                    clip = mp.VideoFileClip(file_path)
-                    # Resize to target resolution
-                    clip = resize_video(clip, target_resolution)
-                    clips.append(clip)
-                else:
-                    missing_files.append(f"A-Roll file not found: {file_path}")
-            
-            elif item["type"] == "broll_with_aroll_audio":
-                # B-Roll video with A-Roll audio
-                broll_path = item["broll_file_path"]
-                aroll_path = item["aroll_file_path"]
-                
-                if not os.path.exists(broll_path):
-                    missing_files.append(f"B-Roll file not found: {broll_path}")
-                    continue
-                
-                if not os.path.exists(aroll_path):
-                    missing_files.append(f"A-Roll file not found: {aroll_path}")
-                    continue
-                
-                # Check if B-Roll is an image or video
-                is_image = broll_path.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))
-                
-                try:
-                    if is_image:
-                        # Load the image as a video clip with A-Roll duration
-                        aroll_clip = mp.VideoFileClip(aroll_path)
-                        broll_clip = mp.ImageClip(broll_path, duration=aroll_clip.duration)
-                        aroll_clip.close()
-                    else:
-                        # Load B-Roll video
-                        broll_clip = mp.VideoFileClip(broll_path)
-                        
-                        # Get A-Roll video to determine duration
-                        aroll_clip = mp.VideoFileClip(aroll_path)
-                        
-                        # If B-Roll is shorter than A-Roll, loop it
-                        if broll_clip.duration < aroll_clip.duration:
-                            broll_clip = broll_clip.loop(duration=aroll_clip.duration)
-                        # If B-Roll is longer than A-Roll, trim it
-                        elif broll_clip.duration > aroll_clip.duration:
-                            broll_clip = broll_clip.subclip(0, aroll_clip.duration)
-                        
-                        aroll_clip.close()
-                    
-                    # Resize B-Roll to target resolution
-                    broll_clip = resize_video(broll_clip, target_resolution)
-                    
-                    # Extract audio from A-Roll
-                    aroll_clip = mp.VideoFileClip(aroll_path)
-                    aroll_audio = aroll_clip.audio
-                    
-                    # Set A-Roll audio to B-Roll clip
-                    broll_clip = broll_clip.set_audio(aroll_audio)
-                    
-                    clips.append(broll_clip)
-                    aroll_clip.close()
-                except Exception as clip_error:
-                    st.error(f"Error processing clips: {str(clip_error)}")
-                    # Clean up any open clips
-                    try:
-                        if 'aroll_clip' in locals() and aroll_clip is not None:
-                            aroll_clip.close()
-                        if 'broll_clip' in locals() and broll_clip is not None:
-                            broll_clip.close()
-                    except:
-                        pass
-        
-        # Check if we have missing files
-        if missing_files:
-            for error in missing_files:
-                st.error(error)
-            return None
-            
-        # Check if we have clips to concatenate
-        if not clips:
-            st.error("No valid clips were created. Assembly cannot proceed.")
-            return None
-            
-        # Concatenate all clips
-        final_clip = mp.concatenate_videoclips(clips)
-        
-        # Create output directory if it doesn't exist
-        output_dir = project_path / "output"
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Generate output filename with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_path = str(output_dir / f"assembled_video_{timestamp}.mp4")
-        
-        # Write final video
-        st.info("Rendering final video... This may take a while.")
-        progress_text = st.empty()
-        
-        # MoviePy progress callback
-        def write_progress(t, total_time):
-            progress = min(100, int(t * 100 / total_time))
-            progress_text.text(f"Rendering video: {progress}% complete")
-        
-        # Write final video with progress callback
-        final_clip.write_videofile(
-            output_path,
-            codec="libx264",
-            audio_codec="aac",
-            temp_audiofile="temp-audio.m4a",
-            remove_temp=True,
-            threads=4,
-            fps=30,
-            logger=write_progress
-        )
-        
-        # Clean up
-        for clip in clips:
-            clip.close()
-        final_clip.close()
-        
-        return output_path
+# Function to create assembly sequence
+def create_assembly_sequence():
+    """
+    Create a sequence of video segments for assembly based on the content status
     
+    Returns:
+        dict: Result containing status and sequence
+    """
+    # Get content status
+    content_status = load_content_status()
+    if not content_status:
+        return {"status": "error", "message": "Could not load content status"}
+        
+    aroll_segments = content_status.get("aroll", {})
+    broll_segments = content_status.get("broll", {})
+    
+    print(f"Found {len(aroll_segments)} A-Roll segments and {len(broll_segments)} B-Roll segments")
+    print(f"A-Roll keys: {list(aroll_segments.keys())}")
+    print(f"B-Roll keys: {list(broll_segments.keys())}")
+    
+    # Create a sequence for assembly
+    assembly_sequence = []
+    
+    # First segment is A-Roll only
+    if "segment_0" in aroll_segments:
+        aroll_data = aroll_segments["segment_0"]
+        aroll_path = get_aroll_filepath("segment_0", aroll_data)
+        
+        if aroll_path:
+            print(f"Adding A-Roll segment 0 with path: {aroll_path}")
+            assembly_sequence.append({
+                "type": "aroll_full",
+                "aroll_path": aroll_path,
+                "broll_path": None,
+                "segment_id": "segment_0"
+            })
+        else:
+            st.error(f"A-Roll file not found: {aroll_data.get('file_path', 'No path specified')}")
+    
+    # Segments 1-3: B-Roll visuals with A-Roll audio
+    for i in range(1, 4):
+        aroll_segment_id = f"segment_{i}"
+        broll_segment_id = f"segment_{i-1}"  # B-Roll segments are named "segment_X" in content_status.json
+        
+        if aroll_segment_id in aroll_segments and broll_segment_id in broll_segments:
+            aroll_data = aroll_segments[aroll_segment_id]
+            broll_data = broll_segments[broll_segment_id]
+            
+            aroll_path = get_aroll_filepath(aroll_segment_id, aroll_data)
+            broll_path = broll_data.get("file_path")
+            
+            if aroll_path and broll_path and os.path.exists(broll_path):
+                print(f"Adding B-Roll segment {i-1} with A-Roll segment {i}")
+                assembly_sequence.append({
+                    "type": "broll_with_aroll_audio",
+                    "aroll_path": aroll_path,
+                    "broll_path": broll_path,
+                    "segment_id": aroll_segment_id,
+                    "broll_id": broll_segment_id
+                })
+            else:
+                if not aroll_path:
+                    st.error(f"A-Roll file not found for {aroll_segment_id}")
+                if not broll_path or not os.path.exists(broll_path):
+                    st.error(f"B-Roll file not found for {broll_segment_id}")
+    
+    if assembly_sequence:
+        return {
+            "status": "success",
+            "sequence": assembly_sequence
+        }
+    else:
+        return {
+            "status": "error",
+            "message": "No valid segments found for assembly"
+        }
+
+# Replace the assemble_video function to include fallback to simple_assembly
+def assemble_video():
+    """
+    Assemble the final video from A-Roll and B-Roll segments
+    """
+    if not MOVIEPY_AVAILABLE:
+        st.error("MoviePy is not available. Installing required packages...")
+        st.info("Please run: `python utils/video/dependencies.py` to install required packages")
+        return
+
+    # Get the assembly sequence
+    sequence_result = create_assembly_sequence()
+    if sequence_result["status"] != "success":
+        st.error(sequence_result.get("message", "Failed to create assembly sequence"))
+        return
+        
+    assembly_sequence = sequence_result["sequence"]
+    
+    # Parse selected resolution
+    resolution_options = {"1080x1920 (9:16)": (1080, 1920), 
+                         "720x1280 (9:16)": (720, 1280), 
+                         "1920x1080 (16:9)": (1920, 1080)}
+    selected_resolution = st.session_state.get("selected_resolution", "1080x1920 (9:16)")
+    width, height = resolution_options[selected_resolution]
+    
+    # Set up progress reporting
+    progress_text = st.empty()
+    progress_bar = st.progress(0)
+    
+    def update_progress(progress, message):
+        # Update the progress bar and text
+        progress_bar.progress(min(1.0, progress / 100))
+        progress_text.text(f"{message} ({int(progress)}%)")
+    
+    # Perform the video assembly using our helper
+    st.info("Assembling video, please wait...")
+    update_progress(0, "Starting video assembly")
+    
+    # Create output directory if it doesn't exist
+    output_dir = project_path / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Display a checkbox to choose assembly method
+    use_simple_assembly = st.session_state.get("use_simple_assembly", False)
+    st.checkbox("Use simple assembly (FFmpeg direct)", value=use_simple_assembly, 
+                help="Use this if you experience issues with MoviePy", 
+                key="use_simple_assembly")
+    
+    try:
+        # Try primary assembly method first unless simple assembly is selected
+        if not st.session_state.get("use_simple_assembly", False):
+            # Call our helper function
+            result = helper_assemble_video(
+                sequence=assembly_sequence,
+                target_resolution=(width, height),
+                output_dir=str(output_dir),
+                progress_callback=update_progress
+            )
+            
+            # If primary method failed and simple assembly is available, try it
+            if result["status"] == "error" and simple_assemble_video:
+                st.warning("Primary assembly method failed. Trying simple assembly fallback...")
+                update_progress(0, "Starting simple assembly fallback")
+                
+                # Try fallback method
+                result = simple_assemble_video(
+                    sequence=assembly_sequence,
+                    output_path=None,  # Use default path
+                    target_resolution=(width, height),
+                    progress_callback=update_progress
+                )
+        else:
+            # Use simple assembly method directly
+            result = simple_assemble_video(
+                sequence=assembly_sequence,
+                output_path=None,  # Use default path
+                target_resolution=(width, height),
+                progress_callback=update_progress
+            )
+        
+        # Process result
+        if result["status"] == "success":
+            st.session_state.video_assembly["status"] = "complete"
+            st.session_state.video_assembly["output_path"] = result["output_path"]
+            
+            # Mark step as complete
+            mark_step_complete("video_assembly")
+            
+            st.success(f"Video assembled successfully!")
+            update_progress(100, "Video assembly complete")
+            st.rerun()
+        else:
+            st.session_state.video_assembly["status"] = "error"
+            st.session_state.video_assembly["error"] = result["message"]
+            
+            # Display detailed error information
+            st.error(f"Video assembly failed: {result['message']}")
+            if "missing_files" in result:
+                st.warning("Missing files:")
+                for missing in result["missing_files"]:
+                    st.warning(f" - {missing}")
+            
+            # Show traceback in expander if available
+            if "traceback" in result:
+                with st.expander("Error Details"):
+                    st.code(result["traceback"])
+                    
     except Exception as e:
-        st.error(f"Error during video assembly: {str(e)}")
-        # Make sure we clean up any open clips
-        if 'clips' in locals():
-            for clip in clips:
-                try:
-                    clip.close()
-                except:
-                    pass
-        return None
+        st.session_state.video_assembly["status"] = "error"
+        st.session_state.video_assembly["error"] = str(e)
+        
+        st.error(f"Unexpected error during video assembly: {str(e)}")
+        with st.expander("Error Details"):
+            st.code(traceback.format_exc())
+
+# Replace the assembly options section with this improved version
+st.subheader("Assembly Options")
+resolution_options = ["1080x1920 (9:16)", "720x1280 (9:16)", "1920x1080 (16:9)"]
+st.session_state.selected_resolution = st.selectbox(
+    "Output Resolution:", 
+    resolution_options,
+    index=resolution_options.index(st.session_state.get("selected_resolution", "1080x1920 (9:16)")),
+    key="resolution_selectbox_main"
+)
+
+# Add a dependency check option
+if st.button("Check Dependencies", type="secondary", help="Check if all required packages are installed", key="check_dependencies_main"):
+    with st.spinner("Checking dependencies..."):
+        try:
+            subprocess.run([sys.executable, "utils/video/dependencies.py"], check=True)
+            st.success("All dependencies are installed!")
+        except Exception as e:
+            st.error(f"Error checking dependencies: {str(e)}")
+            st.info("Please run `python utils/video/dependencies.py` manually to install required packages")
+
+# Replace the assembly button with an improved version
+if st.button("🎬 Assemble Video", type="primary", use_container_width=True, key="assemble_video_main"):
+    assemble_video()
 
 # Video Assembly Page
 render_step_header(6, "Video Assembly", 8)
@@ -444,7 +526,7 @@ if content_status and segments:
     
     # Create assembly sequence
     if "sequence" not in st.session_state.video_assembly or not st.session_state.video_assembly["sequence"]:
-        sequence_result = create_assembly_sequence(segments, content_status)
+        sequence_result = create_assembly_sequence()
         if sequence_result["status"] == "success":
             st.session_state.video_assembly["sequence"] = sequence_result["sequence"]
         else:
@@ -457,39 +539,36 @@ if content_status and segments:
     
     for i, item in enumerate(st.session_state.video_assembly["sequence"]):
         if item["type"] == "aroll_full":
-            st.markdown(f"**{i+1}.** A-Roll Segment {item['index'] + 1} (full video and audio)")
+            segment_num = item['segment_id'].split('_')[-1]
+            st.markdown(f"**{i+1}.** A-Roll Segment {int(segment_num) + 1} (full video and audio)")
         elif item["type"] == "broll_with_aroll_audio":
-            st.markdown(f"**{i+1}.** B-Roll Segment {item['broll_index'] + 1} visuals + A-Roll Segment {item['aroll_index'] + 1} audio")
+            broll_num = item['broll_id'].split('_')[-1]
+            segment_num = item['segment_id'].split('_')[-1]
+            st.markdown(f"**{i+1}.** B-Roll Segment {int(broll_num) + 1} visuals + A-Roll Segment {int(segment_num) + 1} audio")
     
     # Assembly options
     st.subheader("Assembly Options")
     resolution_options = ["1080x1920 (9:16)", "720x1280 (9:16)", "1920x1080 (16:9)"]
-    selected_resolution = st.selectbox("Output Resolution:", resolution_options)
-    
-    # Parse resolution
-    width, height = map(int, selected_resolution.split(" ")[0].split("x"))
-    
+    st.session_state.selected_resolution = st.selectbox(
+        "Output Resolution:", 
+        resolution_options,
+        index=resolution_options.index(st.session_state.get("selected_resolution", "1080x1920 (9:16)")),
+        key="resolution_selectbox_secondary"
+    )
+
+    # Add a dependency check option
+    if st.button("Check Dependencies", type="secondary", help="Check if all required packages are installed", key="check_dependencies_secondary"):
+        with st.spinner("Checking dependencies..."):
+            try:
+                subprocess.run([sys.executable, "utils/video/dependencies.py"], check=True)
+                st.success("All dependencies are installed!")
+            except Exception as e:
+                st.error(f"Error checking dependencies: {str(e)}")
+                st.info("Please run `python utils/video/dependencies.py` manually to install required packages")
+
     # Assembly button
-    if st.button("🎬 Assemble Video", type="primary", use_container_width=True):
-        with st.spinner("Assembling video, please wait..."):
-            st.session_state.video_assembly["status"] = "processing"
-            
-            # Perform video assembly
-            output_path = assemble_video(st.session_state.video_assembly["sequence"], target_resolution=(width, height))
-            
-            if output_path and os.path.exists(output_path):
-                st.session_state.video_assembly["status"] = "complete"
-                st.session_state.video_assembly["output_path"] = output_path
-                
-                # Mark step as complete
-                mark_step_complete("video_assembly")
-                
-                st.success(f"Video assembled successfully! Saved to: {output_path}")
-                st.rerun()
-            else:
-                st.session_state.video_assembly["status"] = "error"
-                st.session_state.video_assembly["error"] = "Failed to assemble video. Check the logs for details."
-                st.error("Failed to assemble video. Check the logs for details.")
+    if st.button("🎬 Assemble Video", type="primary", use_container_width=True, key="assemble_video_secondary"):
+        assemble_video()
     
     # Display output video if completed
     if st.session_state.video_assembly["status"] == "complete" and st.session_state.video_assembly["output_path"]:
