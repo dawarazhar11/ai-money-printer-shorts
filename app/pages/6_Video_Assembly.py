@@ -78,6 +78,57 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Apply custom CSS to fix sidebar text color
+st.markdown("""
+<style>
+    /* Target sidebar with higher specificity */
+    [data-testid="stSidebar"] {
+        background-color: white !important;
+    }
+    
+    /* Ensure all text inside sidebar is black */
+    [data-testid="stSidebar"] * {
+        color: black !important;
+    }
+    
+    /* Make sidebar buttons light blue */
+    [data-testid="stSidebar"] button {
+        background-color: #e6f2ff !important; /* Light blue background */
+        color: #0066cc !important; /* Darker blue text */
+        border-radius: 6px !important;
+    }
+    
+    /* Hover effect for sidebar buttons */
+    [data-testid="stSidebar"] button:hover {
+        background-color: #cce6ff !important; /* Slightly darker blue on hover */
+    }
+    
+    /* Target specific sidebar elements with higher specificity */
+    .st-emotion-cache-16txtl3, 
+    .st-emotion-cache-16idsys, 
+    .st-emotion-cache-7ym5gk,
+    [data-testid="stSidebar"] a,
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] span {
+        color: black !important;
+    }
+    
+    /* Target sidebar navigation specifically */
+    section[data-testid="stSidebar"] > div > div > div > div > div > ul,
+    section[data-testid="stSidebar"] > div > div > div > div > div > ul * {
+        color: black !important;
+    }
+    
+    /* Ensure sidebar background stays white even after loading */
+    section[data-testid="stSidebar"] > div {
+        background-color: white !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # Load custom CSS
 def load_css():
     css_file = Path("assets/css/style.css")
@@ -202,6 +253,15 @@ def get_aroll_filepath(segment_id, segment_data):
     # Check the file path in the content status
     if "file_path" in segment_data:
         file_path = segment_data["file_path"]
+        
+        # If the file path is just a filename without directory, prepend media/a-roll/
+        if not os.path.dirname(file_path):
+            media_path = f"media/a-roll/{file_path}"
+            if os.path.exists(media_path):
+                print(f"Found A-Roll file: {media_path}")
+                return media_path
+        
+        # Check if the provided path exists directly
         if os.path.exists(file_path):
             return file_path
     
@@ -230,6 +290,54 @@ def get_aroll_filepath(segment_id, segment_data):
     print(f"A-Roll file not found for {segment_id} with prompt_id {prompt_id}")
     return None
 
+def get_broll_filepath(segment_id, segment_data):
+    """
+    Get the filepath for a B-Roll segment, supporting different path formats
+    
+    Args:
+        segment_id: ID of the segment (e.g., 'segment_0')
+        segment_data: Data for the segment
+        
+    Returns:
+        str: Path to the B-Roll file if found, None otherwise
+    """
+    # Check the file path in the content status
+    if "file_path" in segment_data:
+        file_path = segment_data["file_path"]
+        
+        # If the file path is just a filename without directory, prepend media/b-roll/
+        if not os.path.dirname(file_path):
+            media_path = f"media/b-roll/{file_path}"
+            if os.path.exists(media_path):
+                print(f"Found B-Roll file: {media_path}")
+                return media_path
+        
+        # Check if the provided path exists directly
+        if os.path.exists(file_path):
+            return file_path
+    
+    # Try alternative formats if the primary file path doesn't exist
+    segment_num = segment_id.split('_')[-1]
+    prompt_id = segment_data.get('prompt_id', '')
+    
+    # Different file naming patterns to try
+    patterns = [
+        # Common formats
+        f"media/b-roll/broll_segment_{segment_num}.mp4",
+        f"{app_root}/media/b-roll/broll_segment_{segment_num}.mp4",
+        f"media/b-roll/fetched_broll_segment_{segment_num}.mp4",
+        f"{app_root}/media/b-roll/fetched_broll_segment_{segment_num}.mp4"
+    ]
+    
+    # Try each pattern
+    for pattern in patterns:
+        if os.path.exists(pattern):
+            print(f"Found B-Roll file: {pattern}")
+            return pattern
+            
+    print(f"B-Roll file not found for {segment_id}")
+    return None
+
 # Function to create assembly sequence
 def create_assembly_sequence():
     """
@@ -254,6 +362,12 @@ def create_assembly_sequence():
     # Get selected sequence pattern
     selected_sequence = st.session_state.get("selected_sequence", "Standard (A-Roll start, B-Roll middle with A-Roll audio, A-Roll end)")
     
+    # If Custom is selected and we already have a manually created sequence, preserve it
+    if "Custom" in selected_sequence and "video_assembly" in st.session_state and "sequence" in st.session_state.video_assembly:
+        existing_sequence = st.session_state.video_assembly.get("sequence", [])
+        if existing_sequence:
+            return {"status": "success", "sequence": existing_sequence}
+    
     # Create a sequence for assembly based on the selected pattern
     assembly_sequence = []
     
@@ -264,8 +378,33 @@ def create_assembly_sequence():
     if total_aroll_segments == 0:
         return {"status": "error", "message": "No A-Roll segments found"}
     
+    # B-Roll Full (all visuals are B-Roll with A-Roll audio)
+    if "B-Roll Full" in selected_sequence:
+        # All segments use B-Roll visuals with A-Roll audio
+        for i in range(total_aroll_segments):
+            aroll_segment_id = f"segment_{i}"
+            # Use the appropriate B-Roll segment or cycle through available ones
+            broll_index = i % total_broll_segments
+            broll_segment_id = f"segment_{broll_index}"
+            
+            if aroll_segment_id in aroll_segments and broll_segment_id in broll_segments:
+                aroll_data = aroll_segments[aroll_segment_id]
+                broll_data = broll_segments[broll_segment_id]
+                
+                aroll_path = get_aroll_filepath(aroll_segment_id, aroll_data)
+                broll_path = get_broll_filepath(broll_segment_id, broll_data)
+                
+                if aroll_path and broll_path:
+                    print(f"Adding B-Roll segment {broll_index} with A-Roll segment {i}")
+                    assembly_sequence.append({
+                        "type": "broll_with_aroll_audio",
+                        "aroll_path": aroll_path,
+                        "broll_path": broll_path,
+                        "segment_id": aroll_segment_id,
+                        "broll_id": broll_segment_id
+                    })
     # Standard pattern (original implementation)
-    if "Standard" in selected_sequence:
+    elif "Standard" in selected_sequence:
         # First segment is A-Roll only
         if "segment_0" in aroll_segments:
             aroll_data = aroll_segments["segment_0"]
@@ -292,9 +431,9 @@ def create_assembly_sequence():
                 broll_data = broll_segments[broll_segment_id]
                 
                 aroll_path = get_aroll_filepath(aroll_segment_id, aroll_data)
-                broll_path = broll_data.get("file_path")
+                broll_path = get_broll_filepath(broll_segment_id, broll_data)
                 
-                if aroll_path and broll_path and os.path.exists(broll_path):
+                if aroll_path and broll_path:
                     print(f"Adding B-Roll segment {i-1} with A-Roll segment {i}")
                     assembly_sequence.append({
                         "type": "broll_with_aroll_audio",
@@ -306,7 +445,7 @@ def create_assembly_sequence():
                 else:
                     if not aroll_path:
                         st.error(f"A-Roll file not found for {aroll_segment_id}")
-                    if not broll_path or not os.path.exists(broll_path):
+                    if not broll_path:
                         st.error(f"B-Roll file not found for {broll_segment_id}")
         
         # Last segment is A-Roll only
@@ -356,9 +495,9 @@ def create_assembly_sequence():
                 broll_data = broll_segments[broll_segment_id]
                 
                 aroll_path = get_aroll_filepath(aroll_segment_id, aroll_data)
-                broll_path = broll_data.get("file_path")
+                broll_path = get_broll_filepath(broll_segment_id, broll_data)
                 
-                if aroll_path and broll_path and os.path.exists(broll_path):
+                if aroll_path and broll_path:
                     print(f"Adding B-Roll segment {broll_index} with A-Roll segment {i}")
                     assembly_sequence.append({
                         "type": "broll_with_aroll_audio",
@@ -427,9 +566,9 @@ def create_assembly_sequence():
                     broll_data = broll_segments[broll_segment_id]
                     
                     aroll_path = get_aroll_filepath(aroll_segment_id, aroll_data)
-                    broll_path = broll_data.get("file_path")
+                    broll_path = get_broll_filepath(broll_segment_id, broll_data)
                     
-                    if aroll_path and broll_path and os.path.exists(broll_path):
+                    if aroll_path and broll_path:
                         print(f"Adding B-Roll segment {broll_index} with A-Roll segment {i}")
                         assembly_sequence.append({
                             "type": "broll_with_aroll_audio",
@@ -467,9 +606,9 @@ def create_assembly_sequence():
                 broll_data = broll_segments[broll_segment_id]
                 
                 aroll_path = get_aroll_filepath(aroll_segment_id, aroll_data)
-                broll_path = broll_data.get("file_path")
+                broll_path = get_broll_filepath(broll_segment_id, broll_data)
                 
-                if aroll_path and broll_path and os.path.exists(broll_path):
+                if aroll_path and broll_path:
                     print(f"Adding B-Roll segment {broll_index} with A-Roll segment {i}")
                     assembly_sequence.append({
                         "type": "broll_with_aroll_audio",
@@ -500,8 +639,21 @@ def assemble_video():
         st.info("Please run: `python utils/video/dependencies.py` to install required packages")
         return
 
-    # Get the assembly sequence
-    sequence_result = create_assembly_sequence()
+    # If we're using Custom arrangement and already have a sequence, use it directly
+    if ("Custom" in st.session_state.get("selected_sequence", "") and 
+        "sequence" in st.session_state.video_assembly and 
+        st.session_state.video_assembly["sequence"]):
+        assembly_sequence = st.session_state.video_assembly["sequence"]
+        # Verify the sequence has at least one item
+        if not assembly_sequence:
+            st.error("No valid segments found in the custom sequence. Please create a sequence first.")
+            return
+        sequence_result = {"status": "success", "sequence": assembly_sequence}
+        print("Using existing custom sequence for assembly")
+    else:
+        # Get the assembly sequence
+        sequence_result = create_assembly_sequence()
+        
     if sequence_result["status"] != "success":
         st.error(sequence_result.get("message", "Failed to create assembly sequence"))
         return
@@ -614,6 +766,7 @@ sequence_options = [
     "A-Roll Bookends (A-Roll at start and end only, B-Roll middle)",
     "A-Roll Sandwich (A-Roll at start, middle, and end)",
     "B-Roll Heavy (Only first segment uses A-Roll visual)",
+    "B-Roll Full (All B-Roll visuals with A-Roll audio)",
     "Custom (Manual Arrangement)"
 ]
 st.session_state.selected_sequence = st.selectbox(
@@ -670,8 +823,6 @@ if st.session_state.video_assembly["status"] == "complete" and st.session_state.
             )
     else:
         st.error("Video file not found. It may have been moved or deleted.")
-else:
-    st.error("Content data not found. Please complete previous steps before assembling the video.")
 
 # Video Assembly Page
 render_step_header(6, "Video Assembly", 8)
@@ -819,8 +970,8 @@ if content_status and segments:
             broll_items = []
             for segment_id, segment_data in broll_segments.items():
                 segment_num = int(segment_id.split("_")[-1])
-                filepath = segment_data.get("file_path", "")
-                if filepath and os.path.exists(filepath):
+                filepath = get_broll_filepath(segment_id, segment_data)
+                if filepath:
                     broll_items.append({
                         "segment_id": segment_id,
                         "segment_num": segment_num,
@@ -1061,6 +1212,24 @@ if content_status and segments:
                 
                 # Success message
                 st.success("Manual sequence applied!")
+                
+                # Make sure the sequence is immediately available for assembly
+                if assembly_sequence:
+                    # Verify all paths exist
+                    missing_files = []
+                    for seq_item in assembly_sequence:
+                        if "aroll_path" in seq_item and not os.path.exists(seq_item["aroll_path"]):
+                            missing_files.append(f"A-Roll file not found: {seq_item['aroll_path']}")
+                        if "broll_path" in seq_item and seq_item["broll_path"] and not os.path.exists(seq_item["broll_path"]):
+                            missing_files.append(f"B-Roll file not found: {seq_item['broll_path']}")
+                    
+                    if missing_files:
+                        st.error("Missing files in sequence:")
+                        for msg in missing_files:
+                            st.warning(msg)
+                    else:
+                        st.success("All files in sequence are valid!")
+                
                 st.rerun()
     
     # Display sequence preview

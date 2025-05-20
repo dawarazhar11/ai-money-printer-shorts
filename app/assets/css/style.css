@@ -37,21 +37,21 @@ button[kind="primary"]:hover {
 
 /* Sidebar styling */
 section[data-testid="stSidebar"] {
-    background-color: #2a2d34;
-    color: #ffffff;
+    background-color: white;
     padding: 1rem 0;
 }
 
 section[data-testid="stSidebar"] button {
-    background-color: #3a3f4a;
-    color: #ffffff;
+    background-color: #e6f2ff; /* Light blue background */
+    color: #0066cc; /* Darker blue text for contrast */
     border: none;
     margin: 0.25rem 0;
     text-align: left;
+    border-radius: 6px;
 }
 
 section[data-testid="stSidebar"] button:hover {
-    background-color: #4a4f5a;
+    background-color: #cce6ff; /* Slightly darker light blue on hover */
 }
 
 /* Progress bar */

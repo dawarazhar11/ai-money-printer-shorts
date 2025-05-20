@@ -10,6 +10,57 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Apply custom CSS to fix sidebar text color
+st.markdown("""
+<style>
+    /* Target sidebar with higher specificity */
+    [data-testid="stSidebar"] {
+        background-color: white !important;
+    }
+    
+    /* Ensure all text inside sidebar is black */
+    [data-testid="stSidebar"] * {
+        color: black !important;
+    }
+    
+    /* Make sidebar buttons light blue */
+    [data-testid="stSidebar"] button {
+        background-color: #e6f2ff !important; /* Light blue background */
+        color: #0066cc !important; /* Darker blue text */
+        border-radius: 6px !important;
+    }
+    
+    /* Hover effect for sidebar buttons */
+    [data-testid="stSidebar"] button:hover {
+        background-color: #cce6ff !important; /* Slightly darker blue on hover */
+    }
+    
+    /* Target specific sidebar elements with higher specificity */
+    .st-emotion-cache-16txtl3, 
+    .st-emotion-cache-16idsys, 
+    .st-emotion-cache-7ym5gk,
+    [data-testid="stSidebar"] a,
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] span {
+        color: black !important;
+    }
+    
+    /* Target sidebar navigation specifically */
+    section[data-testid="stSidebar"] > div > div > div > div > div > ul,
+    section[data-testid="stSidebar"] > div > div > div > div > div > ul * {
+        color: black !important;
+    }
+    
+    /* Ensure sidebar background stays white even after loading */
+    section[data-testid="stSidebar"] > div {
+        background-color: white !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # Load custom CSS
 def load_css():
     css_file = Path("assets/css/style.css")
