@@ -146,6 +146,13 @@ if "broll_fetch_ids" not in st.session_state:
         "segment_1": "15027251-6c76-4aee-b5d1-adddfa591257",  # SEG2
         "segment_2": "8f34773a-a113-494b-be8a-e5ecd241a8a4"   # SEG3
     }
+else:
+    # Force update existing IDs to match content_status.json
+    st.session_state.broll_fetch_ids = {
+        "segment_0": "ca26f439-3be6-4897-9e8a-d56448f4bb9a",  # SEG1
+        "segment_1": "15027251-6c76-4aee-b5d1-adddfa591257",  # SEG2
+        "segment_2": "8f34773a-a113-494b-be8a-e5ecd241a8a4"   # SEG3
+    }
 if "workflow_selection" not in st.session_state:
     st.session_state.workflow_selection = {
         "image": "default"
@@ -253,7 +260,17 @@ def load_content_status():
     status_file = project_path / "content_status.json"
     if status_file.exists():
         with open(status_file, "r") as f:
-            st.session_state.content_status = json.load(f)
+            content_status = json.load(f)
+            st.session_state.content_status = content_status
+            
+            # Also update broll_fetch_ids from content_status
+            if "broll" in content_status:
+                for segment_id, segment_data in content_status["broll"].items():
+                    if "prompt_id" in segment_data:
+                        if "broll_fetch_ids" not in st.session_state:
+                            st.session_state.broll_fetch_ids = {}
+                        st.session_state.broll_fetch_ids[segment_id] = segment_data["prompt_id"]
+            
             return True
     return False
 
@@ -939,6 +956,22 @@ st.markdown("""
 Generate both A-Roll (on-camera) and B-Roll (visual) content in parallel to maximize efficiency.
 This step will use the prompts generated in the previous step to create all the visual assets for your video.
 """)
+
+# Add a clear cache button
+clear_cache_col1, clear_cache_col2 = st.columns([3, 1])
+with clear_cache_col2:
+    if st.button("🔄 Clear Cache", key="clear_cache_button", help="Clear the session state cache to refresh IDs"):
+        # Reset content_status to force reload from file
+        if "content_status" in st.session_state:
+            del st.session_state.content_status
+        # Force reload of broll_fetch_ids
+        st.session_state.broll_fetch_ids = {
+            "segment_0": "ca26f439-3be6-4897-9e8a-d56448f4bb9a",  # SEG1
+            "segment_1": "15027251-6c76-4aee-b5d1-adddfa591257",  # SEG2
+            "segment_2": "8f34773a-a113-494b-be8a-e5ecd241a8a4"   # SEG3
+        }
+        # Rerun to apply changes
+        st.rerun()
 
 # Load required data
 has_script = load_script_data()

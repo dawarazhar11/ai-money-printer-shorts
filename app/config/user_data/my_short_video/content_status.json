@@ -4,25 +4,25 @@
             "status": "complete",
             "file_path": "fetched_aroll_segment_0_5169ef5a.mp4",
             "prompt_id": "5169ef5a328149a8b13c365ee7060106",
-            "timestamp": "2025-05-20 16:55:35"
+            "timestamp": "2025-05-20 17:06:17"
         },
         "segment_1": {
             "status": "complete",
             "file_path": "fetched_aroll_segment_1_aed87db0.mp4",
             "prompt_id": "aed87db0234e4965825c7ee4c1067467",
-            "timestamp": "2025-05-20 16:55:35"
+            "timestamp": "2025-05-20 17:06:17"
         },
         "segment_2": {
             "status": "complete",
             "file_path": "fetched_aroll_segment_2_e7d47355.mp4",
             "prompt_id": "e7d47355c21e4190bad8752c799343ee",
-            "timestamp": "2025-05-20 16:55:35"
+            "timestamp": "2025-05-20 17:06:17"
         },
         "segment_3": {
             "status": "complete",
             "file_path": "fetched_aroll_segment_3_36064085.mp4",
             "prompt_id": "36064085e2a240768a8368bc6a911aea",
-            "timestamp": "2025-05-20 16:55:35"
+            "timestamp": "2025-05-20 17:06:17"
         }
     },
     "broll": {
@@ -30,19 +30,19 @@
             "status": "complete",
             "file_path": "broll_segment_0_20250520_123906.mp4",
             "prompt_id": "ca26f439-3be6-4897-9e8a-d56448f4bb9a",
-            "timestamp": "2025-05-20 16:55:36"
+            "timestamp": "2025-05-20 17:06:19"
         },
         "segment_1": {
             "status": "complete",
             "file_path": "broll_segment_1_20250520_123907.mp4",
             "prompt_id": "15027251-6c76-4aee-b5d1-adddfa591257",
-            "timestamp": "2025-05-20 16:55:38"
+            "timestamp": "2025-05-20 17:06:20"
         },
         "segment_2": {
             "status": "complete",
             "file_path": "broll_segment_2_20250520_123908.mp4",
             "prompt_id": "8f34773a-a113-494b-be8a-e5ecd241a8a4",
-            "timestamp": "2025-05-20 16:55:40"
+            "timestamp": "2025-05-20 17:06:20"
         }
     }
 }
