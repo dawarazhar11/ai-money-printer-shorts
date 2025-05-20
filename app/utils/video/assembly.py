@@ -166,12 +166,23 @@ def has_valid_audio(clip):
     """Check if a clip has valid audio"""
     try:
         if clip.audio is None:
+            print("Clip has no audio track")
             return False
-        # Try to access a frame to check if audio is valid
-        _ = clip.audio.get_frame(0)
-        return True
-    except (AttributeError, IOError, ValueError) as e:
-        print(f"Audio validation error: {str(e)}")
+            
+        # Additional validation
+        try:
+            # Try to access a frame to check if audio is valid
+            _ = clip.audio.get_frame(0)
+            # Check if the audio has a duration
+            if clip.audio.duration <= 0:
+                print("Audio track has zero or negative duration")
+                return False
+            return True
+        except (AttributeError, IOError, ValueError) as e:
+            print(f"Audio validation error: {str(e)}")
+            return False
+    except Exception as e:
+        print(f"Unexpected audio validation error: {str(e)}")
         return False
 
 @error_handler
@@ -314,13 +325,37 @@ def assemble_video(sequence, target_resolution=(1080, 1920), output_dir=None, pr
                 aroll_clip = mp.VideoFileClip(aroll_path)
                 aroll_duration = aroll_clip.duration
                 
-                # Verify that A-Roll has valid audio
-                if not has_valid_audio(aroll_clip):
-                    print(f"Warning: A-Roll clip {aroll_path} has no valid audio, using silent audio")
-                    # Create silent audio for the duration of the A-Roll clip
+                # More robust audio extraction from A-Roll
+                aroll_audio = None
+                try:
+                    # First try direct audio extraction
+                    if aroll_clip.audio is not None:
+                        # Try to validate audio
+                        if has_valid_audio(aroll_clip):
+                            aroll_audio = aroll_clip.audio
+                            print(f"Successfully extracted audio from A-Roll clip {aroll_path}")
+                        else:
+                            print(f"A-Roll clip {aroll_path} has invalid audio, trying alternative extraction")
+                            
+                    # If the first method failed, try alternative extraction
+                    if aroll_audio is None:
+                        # Try extracting just the audio track
+                        try:
+                            aroll_audio = mp.AudioFileClip(aroll_path)
+                            if has_valid_audio(mp.VideoFileClip(aroll_path).set_audio(aroll_audio)):
+                                print(f"Successfully extracted audio using AudioFileClip from {aroll_path}")
+                            else:
+                                raise ValueError("Extracted audio is invalid")
+                        except Exception as audio_err:
+                            print(f"Audio extraction error: {str(audio_err)}")
+                            # Create silent audio as last resort
+                            aroll_audio = mp.AudioClip(lambda t: [0, 0], duration=aroll_duration)
+                            print(f"Using silent audio for A-Roll clip {aroll_path}")
+                except Exception as e:
+                    print(f"Error during audio processing: {str(e)}")
+                    # Create silent audio as fallback
                     aroll_audio = mp.AudioClip(lambda t: [0, 0], duration=aroll_duration)
-                else:
-                    aroll_audio = aroll_clip.audio
+                    print(f"Using silent audio fallback for A-Roll clip {aroll_path}")
                 
                 if is_image:
                     # Create video from image with A-Roll duration

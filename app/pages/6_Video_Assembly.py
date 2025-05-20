@@ -234,6 +234,7 @@ def get_aroll_filepath(segment_id, segment_data):
 def create_assembly_sequence():
     """
     Create a sequence of video segments for assembly based on the content status
+    and selected sequence pattern
     
     Returns:
         dict: Result containing status and sequence
@@ -250,51 +251,233 @@ def create_assembly_sequence():
     print(f"A-Roll keys: {list(aroll_segments.keys())}")
     print(f"B-Roll keys: {list(broll_segments.keys())}")
     
-    # Create a sequence for assembly
+    # Get selected sequence pattern
+    selected_sequence = st.session_state.get("selected_sequence", "Standard (A-Roll start, B-Roll middle with A-Roll audio, A-Roll end)")
+    
+    # Create a sequence for assembly based on the selected pattern
     assembly_sequence = []
     
-    # First segment is A-Roll only
-    if "segment_0" in aroll_segments:
-        aroll_data = aroll_segments["segment_0"]
-        aroll_path = get_aroll_filepath("segment_0", aroll_data)
-        
-        if aroll_path:
-            print(f"Adding A-Roll segment 0 with path: {aroll_path}")
-            assembly_sequence.append({
-                "type": "aroll_full",
-                "aroll_path": aroll_path,
-                "broll_path": None,
-                "segment_id": "segment_0"
-            })
-        else:
-            st.error(f"A-Roll file not found: {aroll_data.get('file_path', 'No path specified')}")
+    # Check how many segments we have
+    total_aroll_segments = len(aroll_segments)
+    total_broll_segments = len(broll_segments)
     
-    # Segments 1-3: B-Roll visuals with A-Roll audio
-    for i in range(1, 4):
-        aroll_segment_id = f"segment_{i}"
-        broll_segment_id = f"segment_{i-1}"  # B-Roll segments are named "segment_X" in content_status.json
-        
-        if aroll_segment_id in aroll_segments and broll_segment_id in broll_segments:
-            aroll_data = aroll_segments[aroll_segment_id]
-            broll_data = broll_segments[broll_segment_id]
+    if total_aroll_segments == 0:
+        return {"status": "error", "message": "No A-Roll segments found"}
+    
+    # Standard pattern (original implementation)
+    if "Standard" in selected_sequence:
+        # First segment is A-Roll only
+        if "segment_0" in aroll_segments:
+            aroll_data = aroll_segments["segment_0"]
+            aroll_path = get_aroll_filepath("segment_0", aroll_data)
             
-            aroll_path = get_aroll_filepath(aroll_segment_id, aroll_data)
-            broll_path = broll_data.get("file_path")
-            
-            if aroll_path and broll_path and os.path.exists(broll_path):
-                print(f"Adding B-Roll segment {i-1} with A-Roll segment {i}")
+            if aroll_path:
+                print(f"Adding A-Roll segment 0 with path: {aroll_path}")
                 assembly_sequence.append({
-                    "type": "broll_with_aroll_audio",
+                    "type": "aroll_full",
                     "aroll_path": aroll_path,
-                    "broll_path": broll_path,
-                    "segment_id": aroll_segment_id,
-                    "broll_id": broll_segment_id
+                    "broll_path": None,
+                    "segment_id": "segment_0"
                 })
             else:
-                if not aroll_path:
-                    st.error(f"A-Roll file not found for {aroll_segment_id}")
-                if not broll_path or not os.path.exists(broll_path):
-                    st.error(f"B-Roll file not found for {broll_segment_id}")
+                st.error(f"A-Roll file not found: {aroll_data.get('file_path', 'No path specified')}")
+        
+        # Middle segments: B-Roll visuals with A-Roll audio
+        for i in range(1, total_aroll_segments - 1):
+            aroll_segment_id = f"segment_{i}"
+            broll_segment_id = f"segment_{i-1}"  # B-Roll segments are named "segment_X" in content_status.json
+            
+            if aroll_segment_id in aroll_segments and broll_segment_id in broll_segments:
+                aroll_data = aroll_segments[aroll_segment_id]
+                broll_data = broll_segments[broll_segment_id]
+                
+                aroll_path = get_aroll_filepath(aroll_segment_id, aroll_data)
+                broll_path = broll_data.get("file_path")
+                
+                if aroll_path and broll_path and os.path.exists(broll_path):
+                    print(f"Adding B-Roll segment {i-1} with A-Roll segment {i}")
+                    assembly_sequence.append({
+                        "type": "broll_with_aroll_audio",
+                        "aroll_path": aroll_path,
+                        "broll_path": broll_path,
+                        "segment_id": aroll_segment_id,
+                        "broll_id": broll_segment_id
+                    })
+                else:
+                    if not aroll_path:
+                        st.error(f"A-Roll file not found for {aroll_segment_id}")
+                    if not broll_path or not os.path.exists(broll_path):
+                        st.error(f"B-Roll file not found for {broll_segment_id}")
+        
+        # Last segment is A-Roll only
+        last_segment_id = f"segment_{total_aroll_segments - 1}"
+        if last_segment_id in aroll_segments:
+            aroll_data = aroll_segments[last_segment_id]
+            aroll_path = get_aroll_filepath(last_segment_id, aroll_data)
+            
+            if aroll_path:
+                print(f"Adding final A-Roll segment with path: {aroll_path}")
+                assembly_sequence.append({
+                    "type": "aroll_full",
+                    "aroll_path": aroll_path,
+                    "broll_path": None,
+                    "segment_id": last_segment_id
+                })
+            else:
+                st.error(f"A-Roll file not found: {aroll_data.get('file_path', 'No path specified')}")
+    
+    # A-Roll Bookends pattern
+    elif "Bookends" in selected_sequence:
+        # First segment is A-Roll only
+        if "segment_0" in aroll_segments:
+            aroll_data = aroll_segments["segment_0"]
+            aroll_path = get_aroll_filepath("segment_0", aroll_data)
+            
+            if aroll_path:
+                print(f"Adding A-Roll segment 0 with path: {aroll_path}")
+                assembly_sequence.append({
+                    "type": "aroll_full",
+                    "aroll_path": aroll_path,
+                    "broll_path": None,
+                    "segment_id": "segment_0"
+                })
+            else:
+                st.error(f"A-Roll file not found: {aroll_data.get('file_path', 'No path specified')}")
+        
+        # All middle segments use B-Roll visuals with A-Roll audio
+        for i in range(1, total_aroll_segments - 1):
+            aroll_segment_id = f"segment_{i}"
+            # Use the appropriate B-Roll segment or cycle through available ones
+            broll_index = (i - 1) % total_broll_segments
+            broll_segment_id = f"segment_{broll_index}"
+            
+            if aroll_segment_id in aroll_segments and broll_segment_id in broll_segments:
+                aroll_data = aroll_segments[aroll_segment_id]
+                broll_data = broll_segments[broll_segment_id]
+                
+                aroll_path = get_aroll_filepath(aroll_segment_id, aroll_data)
+                broll_path = broll_data.get("file_path")
+                
+                if aroll_path and broll_path and os.path.exists(broll_path):
+                    print(f"Adding B-Roll segment {broll_index} with A-Roll segment {i}")
+                    assembly_sequence.append({
+                        "type": "broll_with_aroll_audio",
+                        "aroll_path": aroll_path,
+                        "broll_path": broll_path,
+                        "segment_id": aroll_segment_id,
+                        "broll_id": broll_segment_id
+                    })
+            
+        # Last segment is A-Roll only
+        last_segment_id = f"segment_{total_aroll_segments - 1}"
+        if last_segment_id in aroll_segments:
+            aroll_data = aroll_segments[last_segment_id]
+            aroll_path = get_aroll_filepath(last_segment_id, aroll_data)
+            
+            if aroll_path:
+                print(f"Adding final A-Roll segment with path: {aroll_path}")
+                assembly_sequence.append({
+                    "type": "aroll_full",
+                    "aroll_path": aroll_path,
+                    "broll_path": None,
+                    "segment_id": last_segment_id
+                })
+    
+    # A-Roll Sandwich pattern (A-Roll at start, middle, and end)
+    elif "Sandwich" in selected_sequence:
+        # Calculate which segments will be A-Roll vs B-Roll
+        total_segments = total_aroll_segments
+        a_roll_positions = [0]  # First position is always A-Roll
+        
+        # Add middle position if we have at least 3 segments
+        if total_segments >= 3:
+            middle_pos = total_segments // 2
+            a_roll_positions.append(middle_pos)
+        
+        # Add last position if we have at least 2 segments
+        if total_segments >= 2:
+            a_roll_positions.append(total_segments - 1)
+        
+        # Create the sequence
+        for i in range(total_segments):
+            aroll_segment_id = f"segment_{i}"
+            
+            # If this is a position for A-Roll
+            if i in a_roll_positions:
+                if aroll_segment_id in aroll_segments:
+                    aroll_data = aroll_segments[aroll_segment_id]
+                    aroll_path = get_aroll_filepath(aroll_segment_id, aroll_data)
+                    
+                    if aroll_path:
+                        print(f"Adding A-Roll segment {i} with path: {aroll_path}")
+                        assembly_sequence.append({
+                            "type": "aroll_full",
+                            "aroll_path": aroll_path,
+                            "broll_path": None,
+                            "segment_id": aroll_segment_id
+                        })
+            # Otherwise use B-Roll with A-Roll audio
+            else:
+                # Use the appropriate B-Roll segment or cycle through available ones
+                broll_index = (i - 1) % total_broll_segments
+                broll_segment_id = f"segment_{broll_index}"
+                
+                if aroll_segment_id in aroll_segments and broll_segment_id in broll_segments:
+                    aroll_data = aroll_segments[aroll_segment_id]
+                    broll_data = broll_segments[broll_segment_id]
+                    
+                    aroll_path = get_aroll_filepath(aroll_segment_id, aroll_data)
+                    broll_path = broll_data.get("file_path")
+                    
+                    if aroll_path and broll_path and os.path.exists(broll_path):
+                        print(f"Adding B-Roll segment {broll_index} with A-Roll segment {i}")
+                        assembly_sequence.append({
+                            "type": "broll_with_aroll_audio",
+                            "aroll_path": aroll_path,
+                            "broll_path": broll_path,
+                            "segment_id": aroll_segment_id,
+                            "broll_id": broll_segment_id
+                        })
+    
+    # B-Roll Heavy (only first segment uses A-Roll visual)
+    elif "B-Roll Heavy" in selected_sequence:
+        # First segment is A-Roll only
+        if "segment_0" in aroll_segments:
+            aroll_data = aroll_segments["segment_0"]
+            aroll_path = get_aroll_filepath("segment_0", aroll_data)
+            
+            if aroll_path:
+                print(f"Adding A-Roll segment 0 with path: {aroll_path}")
+                assembly_sequence.append({
+                    "type": "aroll_full",
+                    "aroll_path": aroll_path,
+                    "broll_path": None,
+                    "segment_id": "segment_0"
+                })
+        
+        # All remaining segments use B-Roll visuals with A-Roll audio
+        for i in range(1, total_aroll_segments):
+            aroll_segment_id = f"segment_{i}"
+            # Use the appropriate B-Roll segment or cycle through available ones
+            broll_index = (i - 1) % total_broll_segments
+            broll_segment_id = f"segment_{broll_index}"
+            
+            if aroll_segment_id in aroll_segments and broll_segment_id in broll_segments:
+                aroll_data = aroll_segments[aroll_segment_id]
+                broll_data = broll_segments[broll_segment_id]
+                
+                aroll_path = get_aroll_filepath(aroll_segment_id, aroll_data)
+                broll_path = broll_data.get("file_path")
+                
+                if aroll_path and broll_path and os.path.exists(broll_path):
+                    print(f"Adding B-Roll segment {broll_index} with A-Roll segment {i}")
+                    assembly_sequence.append({
+                        "type": "broll_with_aroll_audio",
+                        "aroll_path": aroll_path,
+                        "broll_path": broll_path,
+                        "segment_id": aroll_segment_id,
+                        "broll_id": broll_segment_id
+                    })
     
     if assembly_sequence:
         return {
@@ -424,6 +607,22 @@ def assemble_video():
 
 # Replace the assembly options section with this improved version
 st.subheader("Assembly Options")
+
+# Add sequence selection
+sequence_options = [
+    "Standard (A-Roll start, B-Roll middle with A-Roll audio, A-Roll end)",
+    "A-Roll Bookends (A-Roll at start and end only, B-Roll middle)",
+    "A-Roll Sandwich (A-Roll at start, middle, and end)",
+    "B-Roll Heavy (Only first segment uses A-Roll visual)"
+]
+st.session_state.selected_sequence = st.selectbox(
+    "Sequence Pattern:", 
+    sequence_options,
+    index=sequence_options.index(st.session_state.get("selected_sequence", sequence_options[0])),
+    key="sequence_selectbox"
+)
+
+# Resolution selection
 resolution_options = ["1080x1920 (9:16)", "720x1280 (9:16)", "1920x1080 (16:9)"]
 st.session_state.selected_resolution = st.selectbox(
     "Output Resolution:", 
@@ -535,8 +734,62 @@ if content_status and segments:
     
     # Display assembly sequence
     st.subheader("Assembly Sequence")
+    
+    # Create assembly sequence if not already created
+    if "sequence" not in st.session_state.video_assembly or not st.session_state.video_assembly["sequence"]:
+        sequence_result = create_assembly_sequence()
+        if sequence_result["status"] == "success":
+            st.session_state.video_assembly["sequence"] = sequence_result["sequence"]
+        else:
+            st.error(sequence_result["message"])
+            st.stop()
+    
+    # If sequence exists but doesn't match the current selection, regenerate it
+    selected_sequence = st.session_state.get("selected_sequence", "")
+    if selected_sequence != st.session_state.video_assembly.get("selected_sequence", ""):
+        sequence_result = create_assembly_sequence()
+        if sequence_result["status"] == "success":
+            st.session_state.video_assembly["sequence"] = sequence_result["sequence"]
+            st.session_state.video_assembly["selected_sequence"] = selected_sequence
+        else:
+            st.error(sequence_result["message"])
+            st.stop()
+    
+    # Display sequence preview
     st.markdown("The video will be assembled in the following sequence:")
     
+    # Use cols to create a sequence preview
+    cols = st.columns(min(8, len(st.session_state.video_assembly["sequence"])))
+    
+    # Create visual sequence preview with simple boxes
+    for i, (item, col) in enumerate(zip(st.session_state.video_assembly["sequence"], cols)):
+        segment_type = item["type"]
+        segment_id = item.get("segment_id", "").split("_")[-1]  # Extract segment number
+        
+        if segment_type == "aroll_full":
+            col.markdown(
+                f"""
+                <div style="text-align:center; border:2px solid #4CAF50; padding:8px; border-radius:5px; background-color:#E8F5E9;">
+                <strong>A-{int(segment_id) + 1}</strong><br>
+                <small>A-Roll video<br>A-Roll audio</small>
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
+        elif segment_type == "broll_with_aroll_audio":
+            broll_id = item.get("broll_id", "").split("_")[-1]
+            col.markdown(
+                f"""
+                <div style="text-align:center; border:2px solid #2196F3; padding:8px; border-radius:5px; background-color:#E3F2FD;">
+                <strong>B-{int(broll_id) + 1} + A-{int(segment_id) + 1}</strong><br>
+                <small>B-Roll video<br>A-Roll audio</small>
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
+    
+    # Full text description of sequence
+    st.markdown("#### Detailed Sequence:")
     for i, item in enumerate(st.session_state.video_assembly["sequence"]):
         if item["type"] == "aroll_full":
             segment_num = item['segment_id'].split('_')[-1]
