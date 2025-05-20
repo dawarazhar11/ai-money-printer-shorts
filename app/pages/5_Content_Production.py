@@ -951,6 +951,39 @@ def generate_content_parallel(segments, broll_prompts, manual_upload, aroll_fetc
 
 # Page header
 render_step_header(5, "Content Production", 8)
+
+# Add a strong visual alert about cache issues
+st.error("""
+## ⚠️ IMPORTANT: CLEAR CACHE ⚠️
+If you're seeing old B-Roll IDs in the input fields, click the "CLEAR ALL CACHE" button below. 
+This is a known issue with Streamlit's caching mechanism.
+""")
+
+# Add a clear cache button with more emphasis
+if st.button("🔄 CLEAR ALL CACHE", type="primary", key="force_clear_cache", help="Completely reset all cache", use_container_width=True):
+    # Perform a complete wipe of session state
+    for key in list(st.session_state.keys()):
+        if key.startswith("broll_") or "content_status" in key:
+            del st.session_state[key]
+    
+    # Force reset broll_fetch_ids
+    st.session_state.broll_fetch_ids = {
+        "segment_0": "ca26f439-3be6-4897-9e8a-d56448f4bb9a",
+        "segment_1": "15027251-6c76-4aee-b5d1-adddfa591257", 
+        "segment_2": "8f34773a-a113-494b-be8a-e5ecd241a8a4"
+    }
+    
+    # Also refresh content status from file
+    status_file = project_path / "content_status.json"
+    if status_file.exists():
+        with open(status_file, "r") as f:
+            st.session_state.content_status = json.load(f)
+    
+    # Show success and rerun
+    st.success("Cache cleared! Reloading page...")
+    time.sleep(1)
+    st.rerun()
+
 st.title("⚡ Parallel Content Production")
 st.markdown("""
 Generate both A-Roll (on-camera) and B-Roll (visual) content in parallel to maximize efficiency.
@@ -1325,24 +1358,45 @@ with col2:
     else:
         # B-Roll ID fetch inputs when not using manual upload
         st.markdown("##### Fetch Existing B-Roll by ID")
-        st.caption("Optional: Enter prompt IDs to use existing B-Roll content")
+        st.markdown("""
+        <style>
+        .stTextInput > div > div > input {
+            background-color: #f0f8ff;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        # Force cache invalidation warning
+        st.warning("⚠️ **IMPORTANT**: If you still see old IDs below, please clear your browser cache and refresh the page.")
+        
+        # Completely new implementation using unique IDs
+        broll_ids = {
+            "segment_0": "ca26f439-3be6-4897-9e8a-d56448f4bb9a",
+            "segment_1": "15027251-6c76-4aee-b5d1-adddfa591257", 
+            "segment_2": "8f34773a-a113-494b-be8a-e5ecd241a8a4"
+        }
+        
+        # Use current timestamp for truly unique keys
+        timestamp = int(time.time())
         
         for i, segment in enumerate(broll_segments):
             segment_id = f"segment_{i}"
-            fetch_id = ""
-            # Hard-code the default values directly in the UI instead of using session state
-            if i == 0:
-                fetch_id = "ca26f439-3be6-4897-9e8a-d56448f4bb9a"
-            elif i == 1:
-                fetch_id = "15027251-6c76-4aee-b5d1-adddfa591257"
-            elif i == 2:
-                fetch_id = "8f34773a-a113-494b-be8a-e5ecd241a8a4"
-                
-            b_roll_id = st.text_input(
-                f"B-Roll ID for Segment {i+1}",
-                value=fetch_id,
-                key=f"broll_id_{segment_id}_{int(time.time())}"  # Add timestamp to force unique key
-            )
+            unique_key = f"broll_id_new_{segment_id}_{timestamp}_{i}"
+            
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                b_roll_id = st.text_input(
+                    f"B-Roll ID for Segment {i+1}",
+                    value=broll_ids[segment_id],
+                    key=unique_key
+                )
+            with col2:
+                if st.button(f"Reset", key=f"reset_btn_{segment_id}_{timestamp}"):
+                    # This will be handled on the next rerun
+                    st.session_state[unique_key] = broll_ids[segment_id]
+                    st.rerun()
+                    
+            # Store in session state
             st.session_state.broll_fetch_ids[segment_id] = b_roll_id
 
 # After the B-Roll ID input sections, add a Fetch Content button
