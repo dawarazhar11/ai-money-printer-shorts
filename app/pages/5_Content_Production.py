@@ -959,18 +959,34 @@ This step will use the prompts generated in the previous step to create all the 
 
 # Add a clear cache button
 clear_cache_col1, clear_cache_col2 = st.columns([3, 1])
+with clear_cache_col1:
+    st.warning("**⚠️ If you see old B-Roll IDs in the input fields below, click the 'Reset B-Roll IDs' button →**")
+    
 with clear_cache_col2:
-    if st.button("🔄 Clear Cache", key="clear_cache_button", help="Clear the session state cache to refresh IDs"):
-        # Reset content_status to force reload from file
+    if st.button("🔄 Reset B-Roll IDs", key="clear_cache_button", type="primary", help="Completely reset the B-Roll IDs to use the new values"):
+        # Force complete reset
         if "content_status" in st.session_state:
             del st.session_state.content_status
-        # Force reload of broll_fetch_ids
+        
+        # Recreate broll_fetch_ids with the new IDs
         st.session_state.broll_fetch_ids = {
             "segment_0": "ca26f439-3be6-4897-9e8a-d56448f4bb9a",  # SEG1
             "segment_1": "15027251-6c76-4aee-b5d1-adddfa591257",  # SEG2
             "segment_2": "8f34773a-a113-494b-be8a-e5ecd241a8a4"   # SEG3
         }
-        # Rerun to apply changes
+        
+        # Clear any keys that might have the old B-roll IDs cached
+        keys_to_delete = []
+        for key in st.session_state:
+            if key.startswith("broll_id_segment_"):
+                keys_to_delete.append(key)
+        
+        for key in keys_to_delete:
+            del st.session_state[key]
+            
+        # Force the page to reload
+        st.success("B-Roll IDs reset successfully! Reloading page...")
+        time.sleep(1)
         st.rerun()
 
 # Load required data
@@ -1313,12 +1329,21 @@ with col2:
         
         for i, segment in enumerate(broll_segments):
             segment_id = f"segment_{i}"
-            fetch_id = st.text_input(
+            fetch_id = ""
+            # Hard-code the default values directly in the UI instead of using session state
+            if i == 0:
+                fetch_id = "ca26f439-3be6-4897-9e8a-d56448f4bb9a"
+            elif i == 1:
+                fetch_id = "15027251-6c76-4aee-b5d1-adddfa591257"
+            elif i == 2:
+                fetch_id = "8f34773a-a113-494b-be8a-e5ecd241a8a4"
+                
+            b_roll_id = st.text_input(
                 f"B-Roll ID for Segment {i+1}",
-                value=st.session_state.broll_fetch_ids.get(segment_id, ""),
-                key=f"broll_id_{segment_id}"
+                value=fetch_id,
+                key=f"broll_id_{segment_id}_{int(time.time())}"  # Add timestamp to force unique key
             )
-            st.session_state.broll_fetch_ids[segment_id] = fetch_id
+            st.session_state.broll_fetch_ids[segment_id] = b_roll_id
 
 # After the B-Roll ID input sections, add a Fetch Content button
 st.markdown("---")
