@@ -204,6 +204,16 @@ def extract_audio_track(video_path, output_dir=None):
         print(f"Extracting audio from: {video_path}")
         use_temp_dir = output_dir is None
         
+        # Convert to absolute path for reliability
+        video_path = os.path.abspath(video_path)
+        
+        if not os.path.exists(video_path):
+            print(f"Error: Video file not found: {video_path}")
+            return {
+                "status": "error",
+                "message": f"Video file not found: {video_path}"
+            }
+        
         if use_temp_dir:
             # Use a temporary directory if no output_dir provided
             output_dir = tempfile.mkdtemp()
@@ -218,8 +228,12 @@ def extract_audio_track(video_path, output_dir=None):
         
         # Extract audio using ffmpeg directly for more reliable extraction
         try:
+            print(f"Video path for extraction: {video_path}")
+            print(f"Audio output path: {audio_path}")
+            
             cmd = [
-                "ffmpeg", "-y", "-i", video_path,
+                "ffmpeg", "-y", 
+                "-i", video_path,
                 "-vn",  # No video
                 "-acodec", "aac",  # AAC audio codec
                 "-b:a", "192k",  # Bitrate
@@ -227,7 +241,7 @@ def extract_audio_track(video_path, output_dir=None):
                 audio_path
             ]
             
-            print(f"Running command: {' '.join(cmd)}")
+            print(f"Running ffmpeg command: {' '.join(cmd)}")
             result = subprocess.run(cmd, check=True, capture_output=True, text=True)
             
             if os.path.exists(audio_path) and os.path.getsize(audio_path) > 0:
@@ -247,6 +261,7 @@ def extract_audio_track(video_path, output_dir=None):
                 
         except subprocess.SubprocessError as e:
             print(f"FFmpeg error while extracting audio: {str(e)}")
+            print(f"FFmpeg stderr: {e.stderr if hasattr(e, 'stderr') else 'N/A'}")
             
             # Fallback to MoviePy for extraction
             if MOVIEPY_AVAILABLE:

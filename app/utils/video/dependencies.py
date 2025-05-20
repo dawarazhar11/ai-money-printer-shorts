@@ -64,8 +64,7 @@ def check_ffmpeg():
 def install_packages():
     """Install all required packages"""
     for package, version in REQUIRED_PACKAGES:
-        spec = version if version else ""
-        package_spec = f"{package}{spec}"
+        package_spec = f"{package}{f'=={version}' if version else ''}"
         
         try:
             subprocess.check_call([
