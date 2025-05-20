@@ -651,6 +651,28 @@ if st.button("Check Dependencies", type="secondary", help="Check if all required
 if st.button("🎬 Assemble Video", type="primary", use_container_width=True, key="assemble_video_main"):
     assemble_video()
 
+# Display output video if completed
+if st.session_state.video_assembly["status"] == "complete" and st.session_state.video_assembly["output_path"]:
+    st.subheader("Output Video")
+    output_path = st.session_state.video_assembly["output_path"]
+    
+    if os.path.exists(output_path):
+        # Display video
+        st.video(output_path)
+        
+        # Download button
+        with open(output_path, "rb") as file:
+            st.download_button(
+                label="📥 Download Video",
+                data=file,
+                file_name=os.path.basename(output_path),
+                mime="video/mp4"
+            )
+    else:
+        st.error("Video file not found. It may have been moved or deleted.")
+else:
+    st.error("Content data not found. Please complete previous steps before assembling the video.")
+
 # Video Assembly Page
 render_step_header(6, "Video Assembly", 8)
 st.title("🎬 Video Assembly")
@@ -770,8 +792,16 @@ if content_status and segments:
         if "available_segments" not in st.session_state:
             # Load content status
             content_status = load_content_status()
+            if not content_status:
+                st.error("Could not load content status. Please complete the Content Production step first.")
+                st.stop()
+                
             aroll_segments = content_status.get("aroll", {})
             broll_segments = content_status.get("broll", {})
+            
+            if not aroll_segments:
+                st.error("No A-Roll segments found. Please complete the Content Production step first.")
+                st.stop()
             
             # Create lists of available segments
             aroll_items = []
@@ -802,16 +832,47 @@ if content_status and segments:
             aroll_items.sort(key=lambda x: x["segment_num"])
             broll_items.sort(key=lambda x: x["segment_num"])
             
+            if not aroll_items:
+                st.error("No valid A-Roll files found. Please check Content Production status.")
+                st.stop()
+                
             st.session_state.available_segments = {
                 "aroll": aroll_items,
                 "broll": broll_items
             }
         
+        # Helpful instruction message when first using the editor
+        if st.session_state.get("first_time_manual_edit", True):
+            st.info("""
+            **How to use the manual editor:**
+            1. Add segments using the buttons on the left panel
+            2. Rearrange them using the arrows
+            3. Click 'Apply Manual Sequence' when done
+            
+            You can create any combination of A-Roll videos and B-Roll videos with A-Roll audio.
+            """)
+            st.session_state.first_time_manual_edit = False
+        
         # If we don't have a manual sequence yet, initialize it based on the current sequence
         if "manual_sequence" not in st.session_state:
             st.session_state.manual_sequence = []
-            sequence = st.session_state.video_assembly["sequence"]
+            # Get the current sequence - either from session state or generate a new one
+            if ("sequence" in st.session_state.video_assembly and 
+                st.session_state.video_assembly["sequence"]):
+                sequence = st.session_state.video_assembly["sequence"]
+            else:
+                # Generate a default sequence
+                sequence_result = create_assembly_sequence()
+                if sequence_result["status"] == "success":
+                    sequence = sequence_result["sequence"]
+                    st.session_state.video_assembly["sequence"] = sequence
+                else:
+                    # Handle error by showing a message and providing an empty sequence
+                    st.error(f"Could not generate initial sequence: {sequence_result.get('message', 'Unknown error')}")
+                    st.info("Please add segments manually using the controls below.")
+                    sequence = []
             
+            # Populate manual sequence from the sequence
             for item in sequence:
                 if item["type"] == "aroll_full":
                     segment_id = item["segment_id"]
@@ -969,6 +1030,11 @@ if content_status and segments:
                 
             # Button to update the assembly sequence with the manual sequence
             if st.button("Apply Manual Sequence", key="apply_manual", type="primary"):
+                # Check if we have any segments in the manual sequence
+                if not st.session_state.manual_sequence:
+                    st.error("Cannot apply an empty sequence. Please add at least one segment first.")
+                    st.stop()
+                    
                 # Convert manual sequence to assembly sequence format
                 assembly_sequence = []
                 
@@ -1000,46 +1066,50 @@ if content_status and segments:
     # Display sequence preview
     st.markdown("The video will be assembled in the following sequence:")
     
-    # Use cols to create a sequence preview
-    cols = st.columns(min(8, len(st.session_state.video_assembly["sequence"])))
-    
-    # Create visual sequence preview with simple boxes
-    for i, (item, col) in enumerate(zip(st.session_state.video_assembly["sequence"], cols)):
-        segment_type = item["type"]
-        segment_id = item.get("segment_id", "").split("_")[-1]  # Extract segment number
+    # Check if we have a valid sequence to display
+    if not st.session_state.video_assembly.get("sequence"):
+        st.warning("No sequence defined yet. Please select a sequence pattern or create a custom arrangement.")
+    else:
+        # Use cols to create a sequence preview
+        cols = st.columns(min(8, len(st.session_state.video_assembly["sequence"])))
         
-        if segment_type == "aroll_full":
-            col.markdown(
-                f"""
-                <div style="text-align:center; border:2px solid #4CAF50; padding:8px; border-radius:5px; background-color:#E8F5E9;">
-                <strong>A-{int(segment_id) + 1}</strong><br>
-                <small>A-Roll video<br>A-Roll audio</small>
-                </div>
-                """, 
-                unsafe_allow_html=True
-            )
-        elif segment_type == "broll_with_aroll_audio":
-            broll_id = item.get("broll_id", "").split("_")[-1]
-            col.markdown(
-                f"""
-                <div style="text-align:center; border:2px solid #2196F3; padding:8px; border-radius:5px; background-color:#E3F2FD;">
-                <strong>B-{int(broll_id) + 1} + A-{int(segment_id) + 1}</strong><br>
-                <small>B-Roll video<br>A-Roll audio</small>
-                </div>
-                """, 
-                unsafe_allow_html=True
-            )
-    
-    # Full text description of sequence
-    st.markdown("#### Detailed Sequence:")
-    for i, item in enumerate(st.session_state.video_assembly["sequence"]):
-        if item["type"] == "aroll_full":
-            segment_num = item['segment_id'].split('_')[-1]
-            st.markdown(f"**{i+1}.** A-Roll Segment {int(segment_num) + 1} (full video and audio)")
-        elif item["type"] == "broll_with_aroll_audio":
-            broll_num = item['broll_id'].split('_')[-1]
-            segment_num = item['segment_id'].split('_')[-1]
-            st.markdown(f"**{i+1}.** B-Roll Segment {int(broll_num) + 1} visuals + A-Roll Segment {int(segment_num) + 1} audio")
+        # Create visual sequence preview with simple boxes
+        for i, (item, col) in enumerate(zip(st.session_state.video_assembly["sequence"], cols)):
+            segment_type = item["type"]
+            segment_id = item.get("segment_id", "").split("_")[-1]  # Extract segment number
+            
+            if segment_type == "aroll_full":
+                col.markdown(
+                    f"""
+                    <div style="text-align:center; border:2px solid #4CAF50; padding:8px; border-radius:5px; background-color:#E8F5E9;">
+                    <strong>A-{int(segment_id) + 1}</strong><br>
+                    <small>A-Roll video<br>A-Roll audio</small>
+                    </div>
+                    """, 
+                    unsafe_allow_html=True
+                )
+            elif segment_type == "broll_with_aroll_audio":
+                broll_id = item.get("broll_id", "").split("_")[-1]
+                col.markdown(
+                    f"""
+                    <div style="text-align:center; border:2px solid #2196F3; padding:8px; border-radius:5px; background-color:#E3F2FD;">
+                    <strong>B-{int(broll_id) + 1} + A-{int(segment_id) + 1}</strong><br>
+                    <small>B-Roll video<br>A-Roll audio</small>
+                    </div>
+                    """, 
+                    unsafe_allow_html=True
+                )
+        
+        # Full text description of sequence
+        st.markdown("#### Detailed Sequence:")
+        for i, item in enumerate(st.session_state.video_assembly["sequence"]):
+            if item["type"] == "aroll_full":
+                segment_num = item['segment_id'].split('_')[-1]
+                st.markdown(f"**{i+1}.** A-Roll Segment {int(segment_num) + 1} (full video and audio)")
+            elif item["type"] == "broll_with_aroll_audio":
+                broll_num = item['broll_id'].split('_')[-1]
+                segment_num = item['segment_id'].split('_')[-1]
+                st.markdown(f"**{i+1}.** B-Roll Segment {int(broll_num) + 1} visuals + A-Roll Segment {int(segment_num) + 1} audio")
     
     # Assembly options
     st.subheader("Assembly Options")
@@ -1060,29 +1130,3 @@ if content_status and segments:
             except Exception as e:
                 st.error(f"Error checking dependencies: {str(e)}")
                 st.info("Please run `python utils/video/dependencies.py` manually to install required packages")
-
-    # Assembly button
-    if st.button("🎬 Assemble Video", type="primary", use_container_width=True, key="assemble_video_secondary"):
-        assemble_video()
-    
-    # Display output video if completed
-    if st.session_state.video_assembly["status"] == "complete" and st.session_state.video_assembly["output_path"]:
-        st.subheader("Output Video")
-        output_path = st.session_state.video_assembly["output_path"]
-        
-        if os.path.exists(output_path):
-            # Display video
-            st.video(output_path)
-            
-            # Download button
-            with open(output_path, "rb") as file:
-                st.download_button(
-                    label="📥 Download Video",
-                    data=file,
-                    file_name=os.path.basename(output_path),
-                    mime="video/mp4"
-                )
-        else:
-            st.error("Video file not found. It may have been moved or deleted.")
-else:
-    st.error("Content data not found. Please complete previous steps before assembling the video.") 
