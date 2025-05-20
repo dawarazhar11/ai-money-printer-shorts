@@ -7,8 +7,7 @@ import time
 from pathlib import Path
 import base64
 import threading
-from datetime import datetime, timezone
-import uuid
+from datetime import datetime
 
 # Fix import paths for components and utilities
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -23,7 +22,6 @@ try:
     from components.progress import render_step_header
     from utils.session_state import get_settings, get_project_path, mark_step_complete
     from utils.progress_tracker import start_comfyui_tracking
-    from utils.video.broll_defaults import apply_default_broll_ids, update_session_state_with_defaults
     print("Successfully imported local modules")
 except ImportError as e:
     st.error(f"Failed to import local modules: {str(e)}")
@@ -123,24 +121,10 @@ if "segments" not in st.session_state:
 if "broll_prompts" not in st.session_state:
     st.session_state.broll_prompts = {}
 if "content_status" not in st.session_state:
-    content_status_path = project_path / "content_status.json"
-    
-    if content_status_path.exists():
-        try:
-            with open(content_status_path, "r") as f:
-                st.session_state.content_status = json.load(f)
-                
-                # Apply default B-roll IDs to content status
-                if apply_default_broll_ids(st.session_state.content_status):
-                    save_content_status()  # Save if changes were made
-                    
-                # Update session state with default B-roll IDs
-                update_session_state_with_defaults(st.session_state)
-        except Exception as e:
-            st.error(f"Error loading content status: {str(e)}")
-            st.session_state.content_status = {"aroll": {}, "broll": {}}
-    else:
-        st.session_state.content_status = {"aroll": {}, "broll": {}}
+    st.session_state.content_status = {
+        "aroll": {},
+        "broll": {}
+    }
 if "parallel_tasks" not in st.session_state:
     st.session_state.parallel_tasks = {
         "running": False,
@@ -158,9 +142,9 @@ if "aroll_fetch_ids" not in st.session_state:
 if "broll_fetch_ids" not in st.session_state:
     # Initialize with default B-Roll IDs
     st.session_state.broll_fetch_ids = {
-        "segment_0": "9a148fa4-66a8-4e43-83c4-7c553a53a9a0",  # SEG1
-        "segment_1": "c7f3960f-d3f3-4095-b7fa-66f9a6087cef",  # SEG2
-        "segment_2": "d2526241-6f3e-4a6e-a193-c3bd7870b6db"   # SEG3
+        "segment_0": "ca26f439-3be6-4897-9e8a-d56448f4bb9a",  # SEG1
+        "segment_1": "15027251-6c76-4aee-b5d1-adddfa591257",  # SEG2
+        "segment_2": "8f34773a-a113-494b-be8a-e5ecd241a8a4"   # SEG3
     }
 if "workflow_selection" not in st.session_state:
     st.session_state.workflow_selection = {
