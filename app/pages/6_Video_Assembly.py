@@ -613,7 +613,8 @@ sequence_options = [
     "Standard (A-Roll start, B-Roll middle with A-Roll audio, A-Roll end)",
     "A-Roll Bookends (A-Roll at start and end only, B-Roll middle)",
     "A-Roll Sandwich (A-Roll at start, middle, and end)",
-    "B-Roll Heavy (Only first segment uses A-Roll visual)"
+    "B-Roll Heavy (Only first segment uses A-Roll visual)",
+    "Custom (Manual Arrangement)"
 ]
 st.session_state.selected_sequence = st.selectbox(
     "Sequence Pattern:", 
@@ -621,6 +622,11 @@ st.session_state.selected_sequence = st.selectbox(
     index=sequence_options.index(st.session_state.get("selected_sequence", sequence_options[0])),
     key="sequence_selectbox"
 )
+
+# If Custom is selected, enable manual editing
+if st.session_state.selected_sequence == "Custom (Manual Arrangement)" and not st.session_state.get("enable_manual_editing", False):
+    st.session_state.enable_manual_editing = True
+    st.rerun()
 
 # Resolution selection
 resolution_options = ["1080x1920 (9:16)", "720x1280 (9:16)", "1920x1080 (16:9)"]
@@ -723,17 +729,14 @@ if content_status and segments:
     with col2:
         st.info(f"B-Roll Segments: {broll_completed}/{len(broll_segments)} completed")
     
-    # Create assembly sequence
-    if "sequence" not in st.session_state.video_assembly or not st.session_state.video_assembly["sequence"]:
-        sequence_result = create_assembly_sequence()
-        if sequence_result["status"] == "success":
-            st.session_state.video_assembly["sequence"] = sequence_result["sequence"]
-        else:
-            st.error(sequence_result["message"])
-            st.stop()
-    
     # Display assembly sequence
     st.subheader("Assembly Sequence")
+    
+    # Add a toggle for manual sequence editing
+    enable_manual_editing = st.toggle("Enable Manual Sequence Editor", 
+                                     value=st.session_state.get("enable_manual_editing", False),
+                                     key="enable_manual_editing_toggle")
+    st.session_state.enable_manual_editing = enable_manual_editing
     
     # Create assembly sequence if not already created
     if "sequence" not in st.session_state.video_assembly or not st.session_state.video_assembly["sequence"]:
@@ -745,15 +748,254 @@ if content_status and segments:
             st.stop()
     
     # If sequence exists but doesn't match the current selection, regenerate it
-    selected_sequence = st.session_state.get("selected_sequence", "")
-    if selected_sequence != st.session_state.video_assembly.get("selected_sequence", ""):
-        sequence_result = create_assembly_sequence()
-        if sequence_result["status"] == "success":
-            st.session_state.video_assembly["sequence"] = sequence_result["sequence"]
-            st.session_state.video_assembly["selected_sequence"] = selected_sequence
-        else:
-            st.error(sequence_result["message"])
-            st.stop()
+    # Only if manual editing is not enabled
+    if not enable_manual_editing:
+        selected_sequence = st.session_state.get("selected_sequence", "")
+        if selected_sequence != st.session_state.video_assembly.get("selected_sequence", ""):
+            sequence_result = create_assembly_sequence()
+            if sequence_result["status"] == "success":
+                st.session_state.video_assembly["sequence"] = sequence_result["sequence"]
+                st.session_state.video_assembly["selected_sequence"] = selected_sequence
+            else:
+                st.error(sequence_result["message"])
+                st.stop()
+    
+    # Manual sequence editor
+    if enable_manual_editing:
+        st.markdown("### Manual Sequence Editor")
+        st.markdown("Arrange your segments by dragging and dropping them in the desired order. "
+                    "The audio from A-Roll segments will be preserved regardless of visual placement.")
+        
+        # Initialize available segments data if not already available
+        if "available_segments" not in st.session_state:
+            # Load content status
+            content_status = load_content_status()
+            aroll_segments = content_status.get("aroll", {})
+            broll_segments = content_status.get("broll", {})
+            
+            # Create lists of available segments
+            aroll_items = []
+            for segment_id, segment_data in aroll_segments.items():
+                segment_num = int(segment_id.split("_")[-1])
+                filepath = get_aroll_filepath(segment_id, segment_data)
+                if filepath:
+                    aroll_items.append({
+                        "segment_id": segment_id,
+                        "segment_num": segment_num,
+                        "filepath": filepath,
+                        "type": "aroll"
+                    })
+            
+            broll_items = []
+            for segment_id, segment_data in broll_segments.items():
+                segment_num = int(segment_id.split("_")[-1])
+                filepath = segment_data.get("file_path", "")
+                if filepath and os.path.exists(filepath):
+                    broll_items.append({
+                        "segment_id": segment_id,
+                        "segment_num": segment_num,
+                        "filepath": filepath,
+                        "type": "broll"
+                    })
+            
+            # Sort by segment number
+            aroll_items.sort(key=lambda x: x["segment_num"])
+            broll_items.sort(key=lambda x: x["segment_num"])
+            
+            st.session_state.available_segments = {
+                "aroll": aroll_items,
+                "broll": broll_items
+            }
+        
+        # If we don't have a manual sequence yet, initialize it based on the current sequence
+        if "manual_sequence" not in st.session_state:
+            st.session_state.manual_sequence = []
+            sequence = st.session_state.video_assembly["sequence"]
+            
+            for item in sequence:
+                if item["type"] == "aroll_full":
+                    segment_id = item["segment_id"]
+                    segment_num = int(segment_id.split("_")[-1])
+                    st.session_state.manual_sequence.append({
+                        "type": "aroll_full",
+                        "aroll_segment_id": segment_id,
+                        "aroll_segment_num": segment_num,
+                        "aroll_path": item["aroll_path"]
+                    })
+                elif item["type"] == "broll_with_aroll_audio":
+                    aroll_segment_id = item["segment_id"]
+                    broll_segment_id = item["broll_id"]
+                    aroll_segment_num = int(aroll_segment_id.split("_")[-1])
+                    broll_segment_num = int(broll_segment_id.split("_")[-1])
+                    st.session_state.manual_sequence.append({
+                        "type": "broll_with_aroll_audio",
+                        "aroll_segment_id": aroll_segment_id,
+                        "broll_segment_id": broll_segment_id,
+                        "aroll_segment_num": aroll_segment_num,
+                        "broll_segment_num": broll_segment_num,
+                        "aroll_path": item["aroll_path"],
+                        "broll_path": item["broll_path"]
+                    })
+        
+        # Create two columns: one for available segments, one for sequence
+        col1, col2 = st.columns([1, 3])
+        
+        with col1:
+            st.markdown("#### Available Segments")
+            
+            # A-Roll segments
+            st.markdown("**A-Roll Segments**")
+            for item in st.session_state.available_segments["aroll"]:
+                segment_num = item["segment_num"]
+                segment_id = item["segment_id"]
+                
+                # Create buttons for adding segments
+                if st.button(f"Add A-Roll {segment_num + 1}", key=f"add_aroll_{segment_num}"):
+                    # Find the corresponding aroll item
+                    aroll_path = item["filepath"]
+                    
+                    # Add to manual sequence
+                    st.session_state.manual_sequence.append({
+                        "type": "aroll_full",
+                        "aroll_segment_id": segment_id,
+                        "aroll_segment_num": segment_num,
+                        "aroll_path": aroll_path
+                    })
+                    st.rerun()
+            
+            # B-Roll segments with A-Roll audio selection
+            st.markdown("**B-Roll Segments**")
+            for b_item in st.session_state.available_segments["broll"]:
+                b_segment_num = b_item["segment_num"]
+                b_segment_id = b_item["segment_id"]
+                b_filepath = b_item["filepath"]
+                
+                # Add selection for which A-Roll audio to use
+                aroll_options = [f"A-Roll {a['segment_num'] + 1}" for a in st.session_state.available_segments["aroll"]]
+                selected_aroll = st.selectbox(
+                    f"Audio for B-Roll {b_segment_num + 1}:",
+                    aroll_options,
+                    key=f"aroll_select_{b_segment_num}"
+                )
+                
+                # Get the selected A-Roll index
+                selected_aroll_num = int(selected_aroll.split(" ")[-1]) - 1
+                
+                # Find corresponding A-Roll
+                aroll_item = next((a for a in st.session_state.available_segments["aroll"] 
+                                  if a["segment_num"] == selected_aroll_num), None)
+                
+                if aroll_item:
+                    a_segment_id = aroll_item["segment_id"]
+                    a_segment_num = aroll_item["segment_num"]
+                    a_filepath = aroll_item["filepath"]
+                    
+                    # Button to add B-Roll with A-Roll audio
+                    if st.button(f"Add B-Roll {b_segment_num + 1}", key=f"add_broll_{b_segment_num}"):
+                        st.session_state.manual_sequence.append({
+                            "type": "broll_with_aroll_audio",
+                            "aroll_segment_id": a_segment_id,
+                            "broll_segment_id": b_segment_id,
+                            "aroll_segment_num": a_segment_num,
+                            "broll_segment_num": b_segment_num,
+                            "aroll_path": a_filepath,
+                            "broll_path": b_filepath
+                        })
+                        st.rerun()
+        
+        with col2:
+            st.markdown("#### Current Sequence")
+            st.markdown("Drag and drop segments to rearrange. The final video will follow this order.")
+            
+            # Display the current manual sequence
+            if st.session_state.manual_sequence:
+                # Use columns to create a row for each segment with buttons
+                for i, item in enumerate(st.session_state.manual_sequence):
+                    cols = st.columns([3, 1, 1, 1])
+                    
+                    # Display segment info
+                    if item["type"] == "aroll_full":
+                        segment_num = item["aroll_segment_num"]
+                        cols[0].markdown(
+                            f"""
+                            <div style="text-align:center; border:2px solid #4CAF50; padding:8px; border-radius:5px; background-color:#E8F5E9;">
+                            <strong>A-Roll {segment_num + 1}</strong><br>
+                            <small>Full A-Roll segment</small>
+                            </div>
+                            """, 
+                            unsafe_allow_html=True
+                        )
+                    else:  # broll_with_aroll_audio
+                        a_segment_num = item["aroll_segment_num"]
+                        b_segment_num = item["broll_segment_num"]
+                        cols[0].markdown(
+                            f"""
+                            <div style="text-align:center; border:2px solid #2196F3; padding:8px; border-radius:5px; background-color:#E3F2FD;">
+                            <strong>B-Roll {b_segment_num + 1} + A-Roll {a_segment_num + 1} Audio</strong><br>
+                            <small>B-Roll visuals with A-Roll audio</small>
+                            </div>
+                            """, 
+                            unsafe_allow_html=True
+                        )
+                    
+                    # Move up button (except for first segment)
+                    if i > 0:
+                        if cols[1].button("↑", key=f"move_up_{i}"):
+                            # Swap with previous segment
+                            st.session_state.manual_sequence[i], st.session_state.manual_sequence[i-1] = \
+                                st.session_state.manual_sequence[i-1], st.session_state.manual_sequence[i]
+                            st.rerun()
+                    
+                    # Move down button (except for last segment)
+                    if i < len(st.session_state.manual_sequence) - 1:
+                        if cols[2].button("↓", key=f"move_down_{i}"):
+                            # Swap with next segment
+                            st.session_state.manual_sequence[i], st.session_state.manual_sequence[i+1] = \
+                                st.session_state.manual_sequence[i+1], st.session_state.manual_sequence[i]
+                            st.rerun()
+                    
+                    # Remove button
+                    if cols[3].button("✖", key=f"remove_{i}"):
+                        # Remove this segment
+                        st.session_state.manual_sequence.pop(i)
+                        st.rerun()
+            else:
+                st.info("No segments in the sequence yet. Add segments from the left panel.")
+                
+            # Button to clear the sequence
+            if st.button("Clear Sequence", key="clear_sequence"):
+                st.session_state.manual_sequence = []
+                st.rerun()
+                
+            # Button to update the assembly sequence with the manual sequence
+            if st.button("Apply Manual Sequence", key="apply_manual", type="primary"):
+                # Convert manual sequence to assembly sequence format
+                assembly_sequence = []
+                
+                for item in st.session_state.manual_sequence:
+                    if item["type"] == "aroll_full":
+                        assembly_sequence.append({
+                            "type": "aroll_full",
+                            "aroll_path": item["aroll_path"],
+                            "broll_path": None,
+                            "segment_id": item["aroll_segment_id"]
+                        })
+                    else:  # broll_with_aroll_audio
+                        assembly_sequence.append({
+                            "type": "broll_with_aroll_audio",
+                            "aroll_path": item["aroll_path"],
+                            "broll_path": item["broll_path"],
+                            "segment_id": item["aroll_segment_id"],
+                            "broll_id": item["broll_segment_id"]
+                        })
+                
+                # Update the sequence
+                st.session_state.video_assembly["sequence"] = assembly_sequence
+                st.session_state.video_assembly["selected_sequence"] = "Custom (Manual Arrangement)"
+                
+                # Success message
+                st.success("Manual sequence applied!")
+                st.rerun()
     
     # Display sequence preview
     st.markdown("The video will be assembled in the following sequence:")
