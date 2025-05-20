@@ -39,7 +39,7 @@ def get_workflow_steps():
         {
             "name": "Captioning",
             "icon": "💬",
-            "path": "pages/7_Captioning.py"
+            "path": "pages/7_Autocaptions.py"
         },
         {
             "name": "Publishing",
