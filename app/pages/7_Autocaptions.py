@@ -50,6 +50,73 @@ if "autocaptions" not in st.session_state:
         "error": None
     }
 
+# Get available caption styles
+def get_available_caption_styles():
+    """Get available caption styles from the captions module"""
+    try:
+        from utils.video.captions import CAPTION_STYLES
+        return CAPTION_STYLES
+    except ImportError:
+        return {
+            "tiktok": "TikTok Style",
+            "modern_bold": "Modern Bold",
+            "minimal": "Minimal",
+            "news": "News Style",
+            "social": "Social Media"
+        }
+
+# Get available typography effects 
+def get_available_typography_effects():
+    """Get available typography effects from the captions module"""
+    try:
+        from utils.video.captions import TYPOGRAPHY_EFFECTS
+        return TYPOGRAPHY_EFFECTS
+    except ImportError:
+        return {
+            "fade": {"description": "Fade in/out effect for each word"},
+            "scale": {"description": "Scale words up/down for emphasis"},
+            "color_shift": {"description": "Shift colors based on word importance"},
+            "wave": {"description": "Words move in a wave pattern"},
+            "typewriter": {"description": "Words appear one character at a time"}
+        }
+
+# Get available transcription engines
+def get_available_transcription_engines():
+    """Get available transcription engines"""
+    engines = ["auto"]
+    
+    try:
+        from utils.audio.transcription import check_module_availability
+        
+        # Check whisper
+        if check_module_availability("whisper"):
+            engines.append("whisper")
+        
+        # Check faster-whisper
+        if check_module_availability("faster_whisper"):
+            engines.append("faster_whisper")
+        
+        # Check vosk
+        if check_module_availability("vosk"):
+            engines.append("vosk")
+            
+    except ImportError:
+        # Fallback - just check whisper directly
+        try:
+            import whisper
+            engines.append("whisper")
+        except ImportError:
+            pass
+        
+        # Try to check for faster-whisper
+        try:
+            import faster_whisper
+            engines.append("faster_whisper")
+        except ImportError:
+            pass
+    
+    return engines
+
 # Main function
 def main():
     # Header and navigation
@@ -95,17 +162,25 @@ def main():
         uploaded_file = st.file_uploader("Upload your video file:", type=["mp4", "mov", "avi", "mkv"])
         if uploaded_file:
             # Save the uploaded file to a temporary location
+            os.makedirs("output", exist_ok=True)
             temp_path = os.path.join("output", f"uploaded_{int(time.time())}.mp4")
-            os.makedirs(os.path.dirname(temp_path), exist_ok=True)
             
-            with open(temp_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
-            
-            st.session_state.autocaptions["source_video"] = temp_path
-            st.success(f"Video uploaded successfully: {os.path.basename(temp_path)}")
-            
-            # Display the video
-            st.video(temp_path)
+            try:
+                with open(temp_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                
+                # Verify the file was written successfully
+                if os.path.exists(temp_path) and os.path.getsize(temp_path) > 0:
+                    st.session_state.autocaptions["source_video"] = temp_path
+                    st.success(f"Video uploaded successfully: {os.path.basename(temp_path)}")
+                    
+                    # Display the video
+                    st.video(temp_path)
+                else:
+                    st.error("Failed to save uploaded video. The file may be empty or corrupted.")
+            except Exception as e:
+                st.error(f"Error saving uploaded video: {str(e)}")
+                st.session_state.autocaptions["source_video"] = None
     
     # Display the caption style selection
     if st.session_state.autocaptions["source_video"]:
@@ -113,6 +188,9 @@ def main():
         
         # Get available styles
         styles = get_available_caption_styles()
+        
+        # Get available effects
+        typography_effects = get_available_typography_effects()
         
         # Create columns for style selection
         col1, col2 = st.columns(2)
@@ -128,17 +206,78 @@ def main():
             )
             st.session_state.autocaptions["selected_style"] = selected_style
             
-            # Model size selection
+            # Get available transcription engines
+            engines = get_available_transcription_engines()
+            engine_names = {
+                "auto": "Auto-detect",
+                "whisper": "OpenAI Whisper",
+                "faster_whisper": "Faster Whisper (tiny model available)",
+                "vosk": "Vosk (Offline)"
+            }
+            
+            # Engine selection dropdown
+            engine = st.selectbox(
+                "Transcription Engine:",
+                engines,
+                index=engines.index(st.session_state.autocaptions.get("engine", "auto")),
+                format_func=lambda x: engine_names.get(x, x),
+                help="Choose which transcription engine to use. 'Auto' will pick the best available.",
+                key="engine_select"
+            )
+            st.session_state.autocaptions["engine"] = engine
+            
+            # Model size selection (only relevant for Whisper)
+            model_size_disabled = engine == "vosk"
+            model_sizes = ["tiny", "base", "small", "medium", "large"]
+            if engine == "faster_whisper":
+                # Ensure tiny model is first in the list
+                model_sizes = model_sizes
+                model_size_help = "The tiny model is much faster and uses less memory. Larger models are more accurate but require more processing time."
+            else:
+                model_size_help = "Larger models are more accurate but require more processing time and resources. Used with Whisper and Faster-Whisper."
+                
             model_size = st.selectbox(
                 "Transcription Model Size:",
-                ["tiny", "base", "small", "medium", "large"],
-                index=["tiny", "base", "small", "medium", "large"].index(
+                model_sizes,
+                index=model_sizes.index(
                     st.session_state.autocaptions.get("model_size", "base")
                 ),
-                help="Larger models are more accurate but require more processing time and resources",
-                key="model_select"
+                help=model_size_help,
+                key="model_select",
+                disabled=model_size_disabled
             )
+            if model_size_disabled:
+                st.info("Model size selection is only applicable when using Whisper or Faster-Whisper.")
+            
             st.session_state.autocaptions["model_size"] = model_size
+            
+            # Engine-specific notes
+            if engine == "faster_whisper":
+                st.info("Faster-Whisper supports the tiny model which is much quicker but may be less accurate than larger models.")
+            elif engine == "whisper":
+                st.info("OpenAI Whisper provides high accuracy but may be slower than Faster-Whisper, especially with larger models.")
+            
+            # Typography effects selection
+            st.markdown("### Typography Effects")
+            st.write("Select typography effects to apply to captions:")
+            
+            # Get current effects or initialize with defaults
+            if "typography_effects" not in st.session_state.autocaptions:
+                st.session_state.autocaptions["typography_effects"] = []
+            
+            # Create checkboxes for each effect
+            effect_checkboxes = {}
+            for effect_name, effect_data in typography_effects.items():
+                effect_checkboxes[effect_name] = st.checkbox(
+                    f"{effect_name.replace('_', ' ').title()}: {effect_data.get('description', '')}",
+                    value=effect_name in st.session_state.autocaptions.get("typography_effects", []),
+                    key=f"effect_{effect_name}"
+                )
+            
+            # Update session state with selected effects
+            st.session_state.autocaptions["typography_effects"] = [
+                effect for effect, selected in effect_checkboxes.items() if selected
+            ]
         
         with col2:
             # Display style preview and details
@@ -238,21 +377,64 @@ def main():
                     try:
                         # Call the captioning function
                         video_path = st.session_state.autocaptions["source_video"]
+                        
+                        # Validate video path
+                        if not video_path:
+                            st.error("No video file selected. Please select a video first.")
+                            return
+                            
+                        if not os.path.exists(video_path):
+                            st.error(f"The selected video file does not exist: {video_path}")
+                            return
+                            
                         style_name = st.session_state.autocaptions["selected_style"]
                         model_size = st.session_state.autocaptions["model_size"]
+                        engine = st.session_state.autocaptions["engine"]
+                        
+                        # Get selected typography effects
+                        selected_effects = st.session_state.autocaptions.get("typography_effects", [])
+                        
+                        # Check if we need to customize the style with effects
+                        custom_style = None
+                        if selected_effects:
+                            # Create a custom style based on the selected style but with our effects
+                            try:
+                                from utils.video.captions import CAPTION_STYLES
+                                base_style = CAPTION_STYLES.get(style_name, {}).copy()
+                                base_style["typography_effects"] = selected_effects
+                                custom_style = base_style
+                            except ImportError:
+                                st.warning("Could not load base styles, using selected style without custom effects")
                         
                         # Pre-processing progress update
                         update_progress(10, "Preparing for captioning")
                         
                         # Define output path
                         timestamp = int(time.time())
-                        if "user_project" in st.session_state and "project_dir" in st.session_state.user_project:
-                            output_dir = os.path.join(st.session_state.user_project["project_dir"], "output")
-                        else:
-                            output_dir = "output"
-                        
-                        os.makedirs(output_dir, exist_ok=True)
-                        output_path = os.path.join(output_dir, f"captioned_video_{timestamp}.mp4")
+                        try:
+                            if "user_project" in st.session_state and "project_dir" in st.session_state.user_project:
+                                output_dir = os.path.join(st.session_state.user_project["project_dir"], "output")
+                            else:
+                                output_dir = "output"
+                            
+                            # Ensure output directory exists
+                            os.makedirs(output_dir, exist_ok=True)
+                            
+                            # Verify output directory is writable
+                            if not os.access(output_dir, os.W_OK):
+                                # Fall back to a temporary directory if needed
+                                import tempfile
+                                output_dir = tempfile.gettempdir()
+                                st.warning(f"Output directory not writable. Using temporary directory: {output_dir}")
+                                
+                            output_path = os.path.join(output_dir, f"captioned_video_{timestamp}.mp4")
+                        except Exception as e:
+                            st.error(f"Error setting up output directory: {str(e)}")
+                            # Fallback to temp directory
+                            import tempfile
+                            output_dir = tempfile.gettempdir()
+                            output_path = os.path.join(output_dir, f"captioned_video_{timestamp}.mp4")
+                            st.warning(f"Using temporary directory for output: {output_dir}")
                         
                         # Mid-processing progress update
                         update_progress(15, "Starting transcription")
@@ -262,8 +444,20 @@ def main():
                             video_path=video_path,
                             output_path=output_path,
                             style_name=style_name,
-                            model_size=model_size
+                            model_size=model_size,
+                            engine=engine,
+                            custom_style=custom_style  # Pass the custom style with effects
                         )
+                        
+                        # Ensure result is a properly formatted dictionary
+                        if not isinstance(result, dict):
+                            # Handle non-dictionary return values (should not happen after our fix)
+                            result = {"status": "error", "message": "Invalid result format from caption function"}
+                        elif "status" not in result:
+                            # Ensure there's a status key
+                            result["status"] = "error"
+                            if "message" not in result:
+                                result["message"] = "Invalid result format from caption function"
                         
                         # Process result
                         if result["status"] == "success":
@@ -361,6 +555,14 @@ def main():
         - **Windows**: Download from [FFmpeg.org](https://ffmpeg.org/download.html) or install with Chocolatey: `choco install ffmpeg`
         - **Linux**: Install with your package manager, e.g., `sudo apt install ffmpeg`
         """)
+
+# Navigation buttons
+st.markdown("---")
+render_step_navigation(
+    current_step=7,
+    prev_step_path="pages/6_Video_Assembly.py",
+    next_step_path=None
+)
 
 # Run the main function
 if __name__ == "__main__":
