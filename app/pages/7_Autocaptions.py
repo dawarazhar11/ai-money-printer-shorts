@@ -17,7 +17,8 @@ if str(app_dir) not in sys.path:
     print(f"Added {app_dir} to path")
 
 try:
-    from components.progress import render_step_header, mark_step_complete
+    from components.progress import render_step_header
+    from utils.session_state import mark_step_complete
     from components.navigation import render_workflow_navigation, render_step_navigation
     from utils.video.captions import (
         check_dependencies, 
