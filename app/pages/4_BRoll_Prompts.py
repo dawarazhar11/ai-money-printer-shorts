@@ -14,6 +14,9 @@ from components.navigation import render_workflow_navigation, render_step_naviga
 from components.progress import render_step_header
 from utils.session_state import get_settings, get_project_path, mark_step_complete
 
+# Add import for default B-roll IDs
+from utils.video.broll_defaults import DEFAULT_BROLL_IDS, get_default_broll_id
+
 # Set page configuration
 st.set_page_config(
     page_title="B-Roll Prompt Generation | AI Money Printer",
@@ -295,15 +298,25 @@ if not broll_segments:
 st.subheader("Script Theme")
 st.info(f"Current theme: **{st.session_state.script_theme}**")
 
-# B-Roll type selection
-st.subheader("B-Roll Type")
+# Display the B-Roll type selection
 broll_type = st.radio(
-    "Select B-Roll content type",
-    options=["videos", "images", "mixed"],
-    index=["videos", "images", "mixed"].index(st.session_state.broll_type),
-    help="Choose what type of B-Roll content you want to generate"
+    "Select B-Roll Type:",
+    ["Video", "Image"],
+    index=0 if st.session_state.broll_type == "video" else 1,
+    key="broll_type_selector"
 )
-st.session_state.broll_type = broll_type
+
+# Show default B-roll IDs
+with st.expander("Default B-Roll IDs (Use these for quick assembly)", expanded=False):
+    st.info("These IDs will be used automatically in the Video Assembly if no other B-roll content is selected.")
+    
+    for i, broll_id in enumerate(DEFAULT_BROLL_IDS):
+        st.code(f"Segment {i}: {broll_id}", language="text")
+    
+    st.markdown("""
+    **Note:** These default IDs are pre-configured to work with the assembly process.
+    Changing these requires modifying the code in `utils/video/broll_defaults.py`.
+    """)
 
 # AI model selection for prompt generation
 st.subheader("Prompt Generation")

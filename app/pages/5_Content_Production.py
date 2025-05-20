@@ -7,7 +7,8 @@ import time
 from pathlib import Path
 import base64
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
+import uuid
 
 # Fix import paths for components and utilities
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -22,6 +23,7 @@ try:
     from components.progress import render_step_header
     from utils.session_state import get_settings, get_project_path, mark_step_complete
     from utils.progress_tracker import start_comfyui_tracking
+    from utils.video.broll_defaults import apply_default_broll_ids, update_session_state_with_defaults
     print("Successfully imported local modules")
 except ImportError as e:
     st.error(f"Failed to import local modules: {str(e)}")
@@ -121,10 +123,24 @@ if "segments" not in st.session_state:
 if "broll_prompts" not in st.session_state:
     st.session_state.broll_prompts = {}
 if "content_status" not in st.session_state:
-    st.session_state.content_status = {
-        "aroll": {},
-        "broll": {}
-    }
+    content_status_path = project_path / "content_status.json"
+    
+    if content_status_path.exists():
+        try:
+            with open(content_status_path, "r") as f:
+                st.session_state.content_status = json.load(f)
+                
+                # Apply default B-roll IDs to content status
+                if apply_default_broll_ids(st.session_state.content_status):
+                    save_content_status()  # Save if changes were made
+                    
+                # Update session state with default B-roll IDs
+                update_session_state_with_defaults(st.session_state)
+        except Exception as e:
+            st.error(f"Error loading content status: {str(e)}")
+            st.session_state.content_status = {"aroll": {}, "broll": {}}
+    else:
+        st.session_state.content_status = {"aroll": {}, "broll": {}}
 if "parallel_tasks" not in st.session_state:
     st.session_state.parallel_tasks = {
         "running": False,

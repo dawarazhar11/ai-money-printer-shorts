@@ -230,6 +230,9 @@ import json
 from pathlib import Path
 import subprocess
 
+# Add utils.video.broll_defaults import
+from utils.video.broll_defaults import apply_default_broll_ids, update_session_state_with_defaults
+
 # Set page configuration
 st.set_page_config(
     page_title="Video Assembly | AI Money Printer",
@@ -1741,3 +1744,20 @@ if content_status and segments:
             except Exception as e:
                 st.error(f"Error checking dependencies: {str(e)}")
                 st.info("Please run `python utils/video/dependencies.py` manually to install required packages")
+
+# Add call to apply default B-roll IDs in the initialization section
+# ... existing code ...
+# Initialize content status
+if "content_status" not in st.session_state:
+    content_status = load_content_status()
+    if content_status:
+        st.session_state.content_status = content_status
+        
+        # Apply default B-roll IDs to content status
+        if apply_default_broll_ids(st.session_state.content_status):
+            save_content_status()  # Save if changes were made
+            
+        # Update session state with default B-roll IDs
+        update_session_state_with_defaults(st.session_state)
+    else:
+        st.session_state.content_status = {"aroll": {}, "broll": {}}
