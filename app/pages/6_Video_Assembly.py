@@ -6,15 +6,86 @@ from pathlib import Path
 import numpy as np
 import time
 from datetime import datetime
-import moviepy.editor as mp
-from moviepy.video.fx import resize, speedx
 import cv2
 
-# Add the app directory to Python path for relative imports
-sys.path.append(os.path.abspath(os.path.dirname(__file__)))
-from components.navigation import render_workflow_navigation, render_step_navigation
-from components.progress import render_step_header
-from utils.session_state import get_settings, get_project_path, mark_step_complete
+# Try to import MoviePy, show helpful error if not available
+try:
+    import moviepy.editor as mp
+    from moviepy.video.fx import resize, speedx
+    MOVIEPY_AVAILABLE = True
+except ImportError:
+    st.error("MoviePy is not available. Installing required packages...")
+    st.info("Please run: `pip install moviepy==1.0.3` in your virtual environment")
+    MOVIEPY_AVAILABLE = False
+    # Create dummy classes/functions to avoid errors
+    class DummyMoviePy:
+        def __getattr__(self, name):
+            return lambda *args, **kwargs: None
+    mp = DummyMoviePy()
+    resize = lambda *args, **kwargs: None
+    speedx = lambda *args, **kwargs: None
+
+# Fix import paths - search for the components directory
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+
+# Try to find the components directory
+components_path = os.path.join(parent_dir, 'components')
+if not os.path.exists(components_path):
+    # We might be in the wrong directory structure, try a different approach
+    print(f"Components not found at {components_path}, trying alternative paths")
+    if 'AI-Money-Printer-Shorts' in parent_dir:
+        # We're likely in the main project directory structure
+        project_root = parent_dir
+        while os.path.basename(project_root) != 'AI-Money-Printer-Shorts' and os.path.dirname(project_root) != project_root:
+            project_root = os.path.dirname(project_root)
+        
+        # Add all potential paths
+        app_dir = os.path.join(project_root, 'app')
+        if os.path.exists(app_dir) and app_dir not in sys.path:
+            sys.path.insert(0, app_dir)
+            print(f"Added {app_dir} to path")
+        
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
+            print(f"Added {project_root} to path")
+    
+    # Add parent directory as a last resort
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+        print(f"Added {parent_dir} to path")
+else:
+    # Just add the parent directory which contains the components
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+        print(f"Added {parent_dir} to path")
+
+# Try to import local modules
+try:
+    from components.navigation import render_workflow_navigation, render_step_navigation
+    from components.progress import render_step_header
+    from utils.session_state import get_settings, get_project_path, mark_step_complete
+    print("Successfully imported local modules")
+except ImportError as e:
+    st.error(f"Failed to import local modules: {str(e)}")
+    st.info("Please check your directory structure and make sure the app is running from the correct directory.")
+    print(f"Import error: {str(e)}")
+    print(f"Current sys.path: {sys.path}")
+    
+    # Define fallback functions in case imports fail
+    def render_workflow_navigation():
+        st.sidebar.title("Navigation")
+        st.sidebar.warning("Navigation component failed to load")
+    
+    def render_step_header(title, description):
+        st.header(title)
+        st.caption(description)
+    
+    def get_settings():
+        return {}
+    
+    def get_project_path():
+        return Path(".")
 
 # Set page configuration
 st.set_page_config(
@@ -197,8 +268,14 @@ def create_assembly_sequence(segments, content_status):
 # Function to assemble video based on sequence
 def assemble_video(sequence, target_resolution=(1080, 1920)):
     """Assemble video clips according to the sequence"""
+    # Check if MoviePy is available first
+    if not MOVIEPY_AVAILABLE:
+        st.error("Cannot assemble video: MoviePy is not available.")
+        return None
+        
     try:
         clips = []
+        missing_files = []
         
         for item in sequence:
             if item["type"] == "aroll_full":
@@ -210,8 +287,7 @@ def assemble_video(sequence, target_resolution=(1080, 1920)):
                     clip = resize_video(clip, target_resolution)
                     clips.append(clip)
                 else:
-                    st.error(f"File not found: {file_path}")
-                    return None
+                    missing_files.append(f"A-Roll file not found: {file_path}")
             
             elif item["type"] == "broll_with_aroll_audio":
                 # B-Roll video with A-Roll audio
@@ -219,89 +295,167 @@ def assemble_video(sequence, target_resolution=(1080, 1920)):
                 aroll_path = item["aroll_file_path"]
                 
                 if not os.path.exists(broll_path):
-                    st.error(f"B-Roll file not found: {broll_path}")
-                    return None
+                    missing_files.append(f"B-Roll file not found: {broll_path}")
+                    continue
                 
                 if not os.path.exists(aroll_path):
-                    st.error(f"A-Roll file not found: {aroll_path}")
-                    return None
+                    missing_files.append(f"A-Roll file not found: {aroll_path}")
+                    continue
                 
                 # Check if B-Roll is an image or video
                 is_image = broll_path.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))
                 
-                if is_image:
-                    # Load the image as a video clip with A-Roll duration
+                try:
+                    if is_image:
+                        # Load the image as a video clip with A-Roll duration
+                        aroll_clip = mp.VideoFileClip(aroll_path)
+                        broll_clip = mp.ImageClip(broll_path, duration=aroll_clip.duration)
+                        aroll_clip.close()
+                    else:
+                        # Load B-Roll video
+                        broll_clip = mp.VideoFileClip(broll_path)
+                        
+                        # Get A-Roll video to determine duration
+                        aroll_clip = mp.VideoFileClip(aroll_path)
+                        
+                        # If B-Roll is shorter than A-Roll, loop it
+                        if broll_clip.duration < aroll_clip.duration:
+                            broll_clip = broll_clip.loop(duration=aroll_clip.duration)
+                        # If B-Roll is longer than A-Roll, trim it
+                        elif broll_clip.duration > aroll_clip.duration:
+                            broll_clip = broll_clip.subclip(0, aroll_clip.duration)
+                        
+                        aroll_clip.close()
+                    
+                    # Resize B-Roll to target resolution
+                    broll_clip = resize_video(broll_clip, target_resolution)
+                    
+                    # Extract audio from A-Roll
                     aroll_clip = mp.VideoFileClip(aroll_path)
-                    broll_clip = mp.ImageClip(broll_path, duration=aroll_clip.duration)
+                    aroll_audio = aroll_clip.audio
+                    
+                    # Set A-Roll audio to B-Roll clip
+                    broll_clip = broll_clip.set_audio(aroll_audio)
+                    
+                    clips.append(broll_clip)
                     aroll_clip.close()
-                else:
-                    # Load B-Roll video
-                    broll_clip = mp.VideoFileClip(broll_path)
-                    
-                    # Get A-Roll video to determine duration
-                    aroll_clip = mp.VideoFileClip(aroll_path)
-                    
-                    # If B-Roll is shorter than A-Roll, loop it
-                    if broll_clip.duration < aroll_clip.duration:
-                        broll_clip = broll_clip.loop(duration=aroll_clip.duration)
-                    # If B-Roll is longer than A-Roll, trim it
-                    elif broll_clip.duration > aroll_clip.duration:
-                        broll_clip = broll_clip.subclip(0, aroll_clip.duration)
-                    
-                    aroll_clip.close()
-                
-                # Resize B-Roll to target resolution
-                broll_clip = resize_video(broll_clip, target_resolution)
-                
-                # Extract audio from A-Roll
-                aroll_clip = mp.VideoFileClip(aroll_path)
-                aroll_audio = aroll_clip.audio
-                
-                # Set A-Roll audio to B-Roll clip
-                broll_clip = broll_clip.set_audio(aroll_audio)
-                
-                clips.append(broll_clip)
-                aroll_clip.close()
+                except Exception as clip_error:
+                    st.error(f"Error processing clips: {str(clip_error)}")
+                    # Clean up any open clips
+                    try:
+                        if 'aroll_clip' in locals() and aroll_clip is not None:
+                            aroll_clip.close()
+                        if 'broll_clip' in locals() and broll_clip is not None:
+                            broll_clip.close()
+                    except:
+                        pass
         
-        # Concatenate all clips
-        if clips:
-            final_clip = mp.concatenate_videoclips(clips)
-            
-            # Create output directory if it doesn't exist
-            output_dir = project_path / "output"
-            output_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Generate output filename with timestamp
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_path = str(output_dir / f"assembled_video_{timestamp}.mp4")
-            
-            # Write final video
-            final_clip.write_videofile(
-                output_path,
-                codec="libx264",
-                audio_codec="aac",
-                temp_audiofile="temp-audio.m4a",
-                remove_temp=True,
-                threads=4,
-                fps=30
-            )
-            
-            # Clean up
-            for clip in clips:
-                clip.close()
-            final_clip.close()
-            
-            return output_path
-        else:
+        # Check if we have missing files
+        if missing_files:
+            for error in missing_files:
+                st.error(error)
             return None
+            
+        # Check if we have clips to concatenate
+        if not clips:
+            st.error("No valid clips were created. Assembly cannot proceed.")
+            return None
+            
+        # Concatenate all clips
+        final_clip = mp.concatenate_videoclips(clips)
+        
+        # Create output directory if it doesn't exist
+        output_dir = project_path / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate output filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_path = str(output_dir / f"assembled_video_{timestamp}.mp4")
+        
+        # Write final video
+        st.info("Rendering final video... This may take a while.")
+        progress_text = st.empty()
+        
+        # MoviePy progress callback
+        def write_progress(t, total_time):
+            progress = min(100, int(t * 100 / total_time))
+            progress_text.text(f"Rendering video: {progress}% complete")
+        
+        # Write final video with progress callback
+        final_clip.write_videofile(
+            output_path,
+            codec="libx264",
+            audio_codec="aac",
+            temp_audiofile="temp-audio.m4a",
+            remove_temp=True,
+            threads=4,
+            fps=30,
+            logger=write_progress
+        )
+        
+        # Clean up
+        for clip in clips:
+            clip.close()
+        final_clip.close()
+        
+        return output_path
     
     except Exception as e:
         st.error(f"Error during video assembly: {str(e)}")
+        # Make sure we clean up any open clips
+        if 'clips' in locals():
+            for clip in clips:
+                try:
+                    clip.close()
+                except:
+                    pass
         return None
 
 # Main UI
 st.title("🎬 Video Assembly")
-render_step_header("Video Assembly", "Stitching segments into a final video")
+render_step_header(6, "Video Assembly")
+
+# Check if MoviePy is available
+if not MOVIEPY_AVAILABLE:
+    st.error("⚠️ MoviePy is not available. Video assembly requires MoviePy.")
+    st.info("Please install MoviePy by running: `pip install moviepy==1.0.3`")
+    
+    with st.expander("Installation Instructions"):
+        st.markdown("""
+        ### Installing MoviePy
+        
+        1. **Activate your virtual environment**: 
+           ```bash
+           source .venv/bin/activate
+           ```
+        
+        2. **Install MoviePy and dependencies**:
+           ```bash
+           pip install moviepy==1.0.3 ffmpeg-python
+           ```
+           
+        3. **Install FFMPEG (if not already installed)**:
+           
+           On Mac:
+           ```bash
+           brew install ffmpeg
+           ```
+           
+           On Ubuntu/Debian:
+           ```bash
+           sudo apt-get install ffmpeg
+           ```
+           
+           On Windows:
+           - Download from [ffmpeg.org](https://ffmpeg.org/download.html)
+           - Add to your PATH
+        
+        4. **Restart the Streamlit app**:
+           ```bash
+           streamlit run pages/6_Video_Assembly.py
+           ```
+        """)
+    st.stop()
 
 # Load content status and segments
 content_status = load_content_status()
