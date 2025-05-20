@@ -201,20 +201,59 @@ def check_audio_overlaps(sequence):
     """
     warnings = []
     used_audio_segments = {}
+    segment_details = []
     
+    # First pass: gather all audio segment information
     for i, item in enumerate(sequence):
         segment_id = item.get("segment_id", f"segment_{i}")
         
         # Track which A-Roll audio segments are being used
         if segment_id in used_audio_segments:
-            warnings.append(f"Segment {i+1}: Using same A-Roll audio ({segment_id}) that was already used in segment {used_audio_segments[segment_id]+1}")
+            warning_msg = f"Segment {i+1}: Using same A-Roll audio ({segment_id}) that was already used in segment {used_audio_segments[segment_id]['index']+1}"
+            warnings.append(warning_msg)
+            # Print warning in a visible format
+            print(f"⚠️ AUDIO OVERLAP DETECTED: {warning_msg}")
+            
+            # Add this segment to the details with overlap flag
+            segment_details.append({
+                "index": i,
+                "segment_id": segment_id,
+                "type": item["type"],
+                "has_overlap": True,
+                "original_index": used_audio_segments[segment_id]["index"]
+            })
         else:
-            used_audio_segments[segment_id] = i
+            used_audio_segments[segment_id] = {
+                "index": i,
+                "type": item["type"]
+            }
+            
+            # Add to details without overlap flag
+            segment_details.append({
+                "index": i,
+                "segment_id": segment_id,
+                "type": item["type"],
+                "has_overlap": False
+            })
+    
+    # Generate enhanced diagnostic details
+    if warnings:
+        print("\n=== Audio Track Sequence Analysis ===")
+        print(f"Total segments: {len(sequence)}")
+        print(f"Unique audio tracks: {len(used_audio_segments)}")
+        print(f"Duplicated audio tracks: {len(warnings)}")
+        print("\nAudio track sequence (⚠️ = overlap):")
+        
+        for segment in segment_details:
+            overlap_indicator = "⚠️" if segment["has_overlap"] else "  "
+            overlap_info = f" (duplicate of segment {segment['original_index']+1})" if segment["has_overlap"] else ""
+            print(f"{overlap_indicator} Segment {segment['index']+1}: {segment['segment_id']}{overlap_info}")
     
     return {
         "has_overlaps": len(warnings) > 0,
         "warnings": warnings,
-        "used_segments": used_audio_segments
+        "used_segments": used_audio_segments,
+        "segment_details": segment_details
     }
 
 # Add this function to extract audio from video file to separate audio file
@@ -295,6 +334,14 @@ def assemble_video(sequence, target_resolution=(1080, 1920), output_dir=None, pr
         print("⚠️ Warning: Potential audio overlaps detected:")
         for warning in overlaps["warnings"]:
             print(f"  - {warning}")
+        
+        # Print a more informative message with suggestions
+        print("\n⚠️ IMPORTANT: Audio overlap issues detected in your sequence!")
+        print("This can cause audio from the same segment to be heard multiple times in your video.")
+        print("To fix this:")
+        print("1. Try using a different sequence pattern (B-Roll Full, Standard, etc.)")
+        print("2. Use the Custom arrangement to manually control which audio segments are used")
+        print("3. Ensure each A-Roll audio segment is used exactly once\n")
     
     # Check all input files
     missing_files = []
@@ -321,13 +368,14 @@ def assemble_video(sequence, target_resolution=(1080, 1920), output_dir=None, pr
             "missing_files": missing_files
         }
     
+    # Generate a timestamp for the output file - defined here so it's available for all code paths
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
     try:
-        # Generate a timestamp for the output file - defined here so it's available for all code paths
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
         # Extract audio from all A-Roll segments first
         audio_temp_dir = tempfile.mkdtemp()
         extracted_audio_paths = {}
+        audio_durations = {}
         
         progress_callback(10, "Extracting audio from A-Roll segments")
         
@@ -338,18 +386,35 @@ def assemble_video(sequence, target_resolution=(1080, 1920), output_dir=None, pr
                 audio_path = extract_audio_track(item["aroll_path"], audio_temp_dir)
                 if audio_path:
                     extracted_audio_paths[segment_id] = audio_path
+                    # Get audio duration
+                    try:
+                        audio_clip = mp.AudioFileClip(audio_path)
+                        audio_durations[segment_id] = audio_clip.duration
+                        audio_clip.close()
+                        print(f"Audio segment {segment_id} duration: {audio_durations[segment_id]:.2f}s")
+                    except Exception as e:
+                        print(f"Error getting audio duration for segment {segment_id}: {str(e)}")
         
         # Load and assemble video clips
         progress_callback(20, "Loading video segments")
         clips = []
         
+        # Track current audio position to ensure sequential placement
+        current_audio_position = 0
+        used_audio_segments = set()
+        
         for i, item in enumerate(sequence):
             progress_callback(20 + (i / len(sequence) * 40), f"Processing segment {i+1}/{len(sequence)}")
+            segment_id = item.get("segment_id", f"segment_{i}")
+            
+            # Skip if this A-Roll audio was already used (should be prevented by sequence creation)
+            if segment_id in used_audio_segments:
+                print(f"⚠️ WARNING: Segment {segment_id} audio was already used - skipping duplicate")
+                continue
             
             if item["type"] == "aroll_full":
                 # Load A-Roll video
                 aroll_path = item["aroll_path"]
-                segment_id = item.get("segment_id", f"segment_{i}")
                 
                 try:
                     print(f"Loading A-Roll video: {aroll_path}")
@@ -362,17 +427,28 @@ def assemble_video(sequence, target_resolution=(1080, 1920), output_dir=None, pr
                             print(f"Loading extracted A-Roll audio: {audio_path}")
                             audio_clip = mp.AudioFileClip(audio_path)
                             
+                            # First, ensure the clip has no audio of its own
+                            clip = clip.without_audio()
+                            
                             # If audio is shorter than video, extend it
                             if audio_clip.duration < clip.duration:
                                 print(f"Audio duration {audio_clip.duration} is shorter than video {clip.duration}, extending audio")
-                                padding = clip.duration - audio_clip.duration
-                                # Create silence to pad the audio
-                                # silence = mp.AudioClip(lambda t: 0, duration=padding)
-                                # audio_clip = mp.concatenate_audioclips([audio_clip, silence])
+                            
+                            # Ensure the clip duration exactly matches the audio duration
+                            exact_duration = min(clip.duration, audio_clip.duration)
+                            clip = clip.subclip(0, exact_duration)
+                            audio_clip = audio_clip.subclip(0, exact_duration)
                             
                             # Apply audio to clip
                             clip = clip.set_audio(audio_clip)
                             print("Successfully applied extracted audio to A-Roll clip")
+                            
+                            # Mark this segment as used
+                            used_audio_segments.add(segment_id)
+                            
+                            # Update current audio position
+                            current_audio_position += clip.duration
+                            
                         except Exception as e:
                             print(f"Error applying extracted audio: {str(e)}")
                     elif not has_valid_audio(clip):
@@ -380,6 +456,12 @@ def assemble_video(sequence, target_resolution=(1080, 1920), output_dir=None, pr
                         # Create silent audio for the full duration
                         silent_audio = mp.AudioClip(lambda t: 0, duration=clip.duration)
                         clip = clip.set_audio(silent_audio)
+                    else:
+                        # Mark this segment as used
+                        used_audio_segments.add(segment_id)
+                        
+                        # Update current audio position
+                        current_audio_position += clip.duration
                     
                     # Resize to target resolution
                     clip = resize_video(clip, target_resolution)
@@ -392,7 +474,6 @@ def assemble_video(sequence, target_resolution=(1080, 1920), output_dir=None, pr
                 # Load B-Roll video with A-Roll audio
                 broll_path = item["broll_path"]
                 aroll_path = item["aroll_path"]
-                segment_id = item.get("segment_id", f"segment_{i}")
                 
                 try:
                     # Load B-Roll video
@@ -403,8 +484,11 @@ def assemble_video(sequence, target_resolution=(1080, 1920), output_dir=None, pr
                     if segment_id in extracted_audio_paths:
                         audio_path = extracted_audio_paths[segment_id]
                         try:
-                            print(f"Successfully loaded extracted A-Roll audio: {audio_path} (duration: {mp.AudioFileClip(audio_path).duration}s)")
+                            print(f"Loading extracted A-Roll audio: {audio_path}")
                             aroll_audio = mp.AudioFileClip(audio_path)
+                            
+                            # First, ensure the B-Roll clip has no audio of its own
+                            broll_clip = broll_clip.without_audio()
                             
                             # Apply A-Roll audio to B-Roll video
                             broll_clip = broll_clip.set_audio(aroll_audio)
@@ -422,6 +506,21 @@ def assemble_video(sequence, target_resolution=(1080, 1920), output_dir=None, pr
                             # If B-Roll is longer than A-Roll audio, trim it
                             elif broll_clip.duration > aroll_audio.duration:
                                 broll_clip = broll_clip.subclip(0, aroll_audio.duration)
+                                
+                            # Ensure the clip duration exactly matches the audio duration
+                            exact_duration = min(broll_clip.duration, aroll_audio.duration)
+                            broll_clip = broll_clip.subclip(0, exact_duration)
+                            aroll_audio = aroll_audio.subclip(0, exact_duration)
+                            
+                            # Apply the precisely trimmed audio to the clip
+                            broll_clip = broll_clip.set_audio(aroll_audio)
+                            
+                            # Mark this segment as used
+                            used_audio_segments.add(segment_id)
+                            
+                            # Update current audio position
+                            current_audio_position += aroll_audio.duration
+                            
                         except Exception as e:
                             print(f"Error applying A-Roll audio to B-Roll: {str(e)}")
                             # Fallback: Try loading A-Roll directly to extract audio
@@ -432,6 +531,12 @@ def assemble_video(sequence, target_resolution=(1080, 1920), output_dir=None, pr
                                     broll_clip = broll_clip.set_audio(aroll_clip.audio)
                                     if broll_clip.duration > aroll_clip.duration:
                                         broll_clip = broll_clip.subclip(0, aroll_clip.duration)
+                                    
+                                    # Mark this segment as used
+                                    used_audio_segments.add(segment_id)
+                                    
+                                    # Update current audio position
+                                    current_audio_position += aroll_clip.duration
                                 else:
                                     print(f"Fallback failed: A-Roll has no valid audio")
                                     # Create silent audio
@@ -454,6 +559,12 @@ def assemble_video(sequence, target_resolution=(1080, 1920), output_dir=None, pr
                                 broll_clip = broll_clip.set_audio(aroll_clip.audio)
                                 if broll_clip.duration > aroll_clip.duration:
                                     broll_clip = broll_clip.subclip(0, aroll_clip.duration)
+                                
+                                # Mark this segment as used
+                                used_audio_segments.add(segment_id)
+                                
+                                # Update current audio position
+                                current_audio_position += aroll_clip.duration
                             else:
                                 print(f"A-Roll has no valid audio")
                                 # Create silent audio
@@ -480,7 +591,8 @@ def assemble_video(sequence, target_resolution=(1080, 1920), output_dir=None, pr
         
         # Concatenate clips
         progress_callback(60, "Concatenating video segments")
-        final_clip = mp.concatenate_videoclips(clips)
+        # Use method='compose' to ensure proper audio concatenation without overlaps
+        final_clip = mp.concatenate_videoclips(clips, method='compose', padding=0)
         
         # Set output path
         if output_dir is None:

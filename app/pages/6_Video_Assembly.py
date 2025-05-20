@@ -541,8 +541,18 @@ def create_assembly_sequence():
     # B-Roll Full (all visuals are B-Roll with A-Roll audio)
     if "B-Roll Full" in selected_sequence:
         # All segments use B-Roll visuals with A-Roll audio
+        # Track which A-Roll segments have been used to prevent duplicates
+        used_aroll_segments = set()
+        
+        # First arrange all A-Roll segments sequentially, with B-Roll visuals
         for i in range(total_aroll_segments):
             aroll_segment_id = f"segment_{i}"
+            
+            # Skip if this A-Roll segment was already used
+            if aroll_segment_id in used_aroll_segments:
+                print(f"Skipping duplicate A-Roll segment {i} to prevent audio overlap")
+                continue
+                
             # Use the appropriate B-Roll segment or cycle through available ones
             # To prevent audio overlaps, each A-Roll segment is used exactly once
             broll_index = i % total_broll_segments
@@ -564,8 +574,15 @@ def create_assembly_sequence():
                         "segment_id": aroll_segment_id,
                         "broll_id": broll_segment_id
                     })
+                    # Mark this A-Roll segment as used
+                    used_aroll_segments.add(aroll_segment_id)
+                    
+                    print(f"✅ Added audio segment {aroll_segment_id} to sequence position {len(assembly_sequence)}")
     # Standard pattern (original implementation)
     elif "Standard" in selected_sequence:
+        # Track which A-Roll segments have been used to prevent duplicates
+        used_aroll_segments = set()
+        
         # First segment is A-Roll only
         if "segment_0" in aroll_segments:
             aroll_data = aroll_segments["segment_0"]
@@ -579,12 +596,20 @@ def create_assembly_sequence():
                     "broll_path": None,
                     "segment_id": "segment_0"
                 })
+                # Mark as used
+                used_aroll_segments.add("segment_0")
             else:
                 st.error(f"A-Roll file not found: {aroll_data.get('file_path', 'No path specified')}")
         
         # Middle segments: B-Roll visuals with A-Roll audio
         for i in range(1, total_aroll_segments - 1):
             aroll_segment_id = f"segment_{i}"
+            
+            # Skip if this A-Roll segment was already used
+            if aroll_segment_id in used_aroll_segments:
+                print(f"Skipping duplicate A-Roll segment {i} to prevent audio overlap")
+                continue
+                
             broll_segment_id = f"segment_{i-1}"  # B-Roll segments are named "segment_X" in content_status.json
             
             if aroll_segment_id in aroll_segments and broll_segment_id in broll_segments:
@@ -603,6 +628,8 @@ def create_assembly_sequence():
                         "segment_id": aroll_segment_id,
                         "broll_id": broll_segment_id
                     })
+                    # Mark as used
+                    used_aroll_segments.add(aroll_segment_id)
                 else:
                     if not aroll_path:
                         st.error(f"A-Roll file not found for {aroll_segment_id}")
@@ -611,7 +638,9 @@ def create_assembly_sequence():
         
         # Last segment is A-Roll only
         last_segment_id = f"segment_{total_aroll_segments - 1}"
-        if last_segment_id in aroll_segments:
+        
+        # Skip if this A-Roll segment was already used
+        if last_segment_id not in used_aroll_segments and last_segment_id in aroll_segments:
             aroll_data = aroll_segments[last_segment_id]
             aroll_path = get_aroll_filepath(last_segment_id, aroll_data)
             
@@ -623,11 +652,14 @@ def create_assembly_sequence():
                     "broll_path": None,
                     "segment_id": last_segment_id
                 })
-            else:
-                st.error(f"A-Roll file not found: {aroll_data.get('file_path', 'No path specified')}")
+                # Mark as used
+                used_aroll_segments.add(last_segment_id)
     
     # A-Roll Bookends pattern
     elif "Bookends" in selected_sequence:
+        # Track which A-Roll segments have been used to prevent duplicates
+        used_aroll_segments = set()
+        
         # First segment is A-Roll only
         if "segment_0" in aroll_segments:
             aroll_data = aroll_segments["segment_0"]
@@ -641,12 +673,18 @@ def create_assembly_sequence():
                     "broll_path": None,
                     "segment_id": "segment_0"
                 })
-            else:
-                st.error(f"A-Roll file not found: {aroll_data.get('file_path', 'No path specified')}")
+                # Mark as used
+                used_aroll_segments.add("segment_0")
         
         # All middle segments use B-Roll visuals with A-Roll audio
         for i in range(1, total_aroll_segments - 1):
             aroll_segment_id = f"segment_{i}"
+            
+            # Skip if this A-Roll segment was already used
+            if aroll_segment_id in used_aroll_segments:
+                print(f"Skipping duplicate A-Roll segment {i} to prevent audio overlap")
+                continue
+                
             # Use the appropriate B-Roll segment or cycle through available ones
             broll_index = (i - 1) % total_broll_segments
             broll_segment_id = f"segment_{broll_index}"
@@ -667,10 +705,14 @@ def create_assembly_sequence():
                         "segment_id": aroll_segment_id,
                         "broll_id": broll_segment_id
                     })
+                    # Mark as used
+                    used_aroll_segments.add(aroll_segment_id)
             
         # Last segment is A-Roll only
         last_segment_id = f"segment_{total_aroll_segments - 1}"
-        if last_segment_id in aroll_segments:
+        
+        # Skip if this A-Roll segment was already used
+        if last_segment_id not in used_aroll_segments and last_segment_id in aroll_segments:
             aroll_data = aroll_segments[last_segment_id]
             aroll_path = get_aroll_filepath(last_segment_id, aroll_data)
             
@@ -682,9 +724,14 @@ def create_assembly_sequence():
                     "broll_path": None,
                     "segment_id": last_segment_id
                 })
+                # Mark as used
+                used_aroll_segments.add(last_segment_id)
     
     # A-Roll Sandwich pattern (A-Roll at start, middle, and end)
     elif "Sandwich" in selected_sequence:
+        # Track which A-Roll segments have been used to prevent duplicates
+        used_aroll_segments = set()
+        
         # Calculate which segments will be A-Roll vs B-Roll
         total_segments = total_aroll_segments
         a_roll_positions = [0]  # First position is always A-Roll
@@ -702,6 +749,11 @@ def create_assembly_sequence():
         for i in range(total_segments):
             aroll_segment_id = f"segment_{i}"
             
+            # Skip if this A-Roll segment was already used
+            if aroll_segment_id in used_aroll_segments:
+                print(f"Skipping duplicate A-Roll segment {i} to prevent audio overlap")
+                continue
+                
             # If this is a position for A-Roll
             if i in a_roll_positions:
                 if aroll_segment_id in aroll_segments:
@@ -716,6 +768,8 @@ def create_assembly_sequence():
                             "broll_path": None,
                             "segment_id": aroll_segment_id
                         })
+                        # Mark as used
+                        used_aroll_segments.add(aroll_segment_id)
             # Otherwise use B-Roll with A-Roll audio
             else:
                 # Use the appropriate B-Roll segment or cycle through available ones
@@ -738,9 +792,14 @@ def create_assembly_sequence():
                             "segment_id": aroll_segment_id,
                             "broll_id": broll_segment_id
                         })
+                        # Mark as used
+                        used_aroll_segments.add(aroll_segment_id)
     
     # B-Roll Heavy (only first segment uses A-Roll visual)
     elif "B-Roll Heavy" in selected_sequence:
+        # Track which A-Roll segments have been used to prevent duplicates
+        used_aroll_segments = set()
+        
         # First segment is A-Roll only
         if "segment_0" in aroll_segments:
             aroll_data = aroll_segments["segment_0"]
@@ -754,10 +813,18 @@ def create_assembly_sequence():
                     "broll_path": None,
                     "segment_id": "segment_0"
                 })
+                # Mark as used
+                used_aroll_segments.add("segment_0")
         
         # All remaining segments use B-Roll visuals with A-Roll audio
         for i in range(1, total_aroll_segments):
             aroll_segment_id = f"segment_{i}"
+            
+            # Skip if this A-Roll segment was already used
+            if aroll_segment_id in used_aroll_segments:
+                print(f"Skipping duplicate A-Roll segment {i} to prevent audio overlap")
+                continue
+                
             # Use the appropriate B-Roll segment or cycle through available ones
             broll_index = (i - 1) % total_broll_segments
             broll_segment_id = f"segment_{broll_index}"
@@ -778,6 +845,8 @@ def create_assembly_sequence():
                         "segment_id": aroll_segment_id,
                         "broll_id": broll_segment_id
                     })
+                    # Mark as used
+                    used_aroll_segments.add(aroll_segment_id)
     
     if assembly_sequence:
         return {
@@ -789,6 +858,107 @@ def create_assembly_sequence():
             "status": "error",
             "message": "No valid segments found for assembly"
         }
+
+def check_for_audio_overlaps(sequence):
+    """
+    Check for potential audio overlaps in the sequence and display warnings in UI
+    
+    Args:
+        sequence: List of video segments to assemble
+    """
+    used_audio_segments = {}
+    overlaps = []
+    segment_details = []
+    
+    for i, item in enumerate(sequence):
+        segment_id = item.get("segment_id", f"segment_{i}")
+        
+        # Track which A-Roll audio segments are being used
+        if segment_id in used_audio_segments:
+            overlaps.append({
+                "segment": i+1, 
+                "audio_id": segment_id,
+                "previous_use": used_audio_segments[segment_id]["index"]+1,
+                "previous_type": used_audio_segments[segment_id]["type"]
+            })
+            
+            # Add this segment to the details with overlap flag
+            segment_details.append({
+                "index": i,
+                "segment_id": segment_id,
+                "type": item["type"],
+                "has_overlap": True,
+                "original_index": used_audio_segments[segment_id]["index"]
+            })
+        else:
+            used_audio_segments[segment_id] = {
+                "index": i,
+                "type": item["type"]
+            }
+            
+            # Add to details without overlap flag
+            segment_details.append({
+                "index": i,
+                "segment_id": segment_id,
+                "type": item["type"],
+                "has_overlap": False
+            })
+    
+    if overlaps:
+        st.warning("⚠️ **Audio Overlap Warning**: Your sequence contains multiple uses of the same audio segments.", icon="⚠️")
+        st.markdown("This may cause audio to be repeated or overlapped in your final video.")
+        
+        # Create a detailed timeline visualization
+        st.markdown("### 🔊 Audio Track Sequence")
+        st.markdown("The following shows your audio track sequence, with overlaps highlighted:")
+        
+        # Create a formatted table of segments
+        segments_md = "| # | Segment ID | Type | Status |\n"
+        segments_md += "| --- | --- | --- | --- |\n"
+        
+        for segment in segment_details:
+            status = "⚠️ **OVERLAP**" if segment["has_overlap"] else "✅ OK"
+            overlap_info = f" (duplicate of #{segment['original_index']+1})" if segment["has_overlap"] else ""
+            type_display = "A-Roll Full" if segment["type"] == "aroll_full" else "B-Roll with A-Roll Audio"
+            segments_md += f"| {segment['index']+1} | {segment['segment_id']} | {type_display} | {status}{overlap_info} |\n"
+        
+        st.markdown(segments_md)
+        
+        for overlap in overlaps:
+            st.warning(f"**Segment {overlap['segment']}** uses the same audio ({overlap['audio_id']}) as segment {overlap['previous_use']}")
+        
+        st.markdown("""
+        **To fix audio overlaps:**
+        
+        1. **Best solution:** Use the Custom arrangement to control exactly which audio segments are used
+        2. Try a different sequence pattern that doesn't reuse audio segments
+        3. Use "B-Roll Full" preset which is designed to ensure each A-Roll audio segment is used exactly once
+        """)
+        
+        # Display additional debugging info in an expander
+        with st.expander("Advanced Audio Overlap Analysis"):
+            st.markdown(f"**Total segments:** {len(sequence)}")
+            st.markdown(f"**Unique audio tracks:** {len(used_audio_segments)}")
+            st.markdown(f"**Overlapping audio tracks:** {len(overlaps)}")
+            
+            # Display the actual sequence composition
+            sequence_details = ""
+            for i, item in enumerate(sequence):
+                segment_id = item.get("segment_id", "unknown")
+                type_str = item.get("type", "unknown")
+                aroll_path = item.get("aroll_path", "none")
+                broll_path = item.get("broll_path", "none")
+                
+                sequence_details += f"**Segment {i+1}:** {segment_id} ({type_str})\n"
+                sequence_details += f"  - A-Roll: {os.path.basename(aroll_path)}\n"
+                if broll_path != "none":
+                    sequence_details += f"  - B-Roll: {os.path.basename(broll_path)}\n"
+                sequence_details += "\n"
+            
+            st.markdown(sequence_details)
+        
+        return True
+    return False
 
 # Replace the assemble_video function to include fallback to simple_assembly
 def assemble_video():
@@ -820,6 +990,14 @@ def assemble_video():
         return
         
     assembly_sequence = sequence_result["sequence"]
+    
+    # Check for audio overlaps and warn the user
+    has_overlaps = check_for_audio_overlaps(assembly_sequence)
+    if has_overlaps:
+        continue_anyway = st.checkbox("Continue with assembly despite audio overlaps", value=False)
+        if not continue_anyway:
+            st.warning("Video assembly paused until audio overlaps are resolved or you choose to continue anyway.")
+            return
     
     # Parse selected resolution
     resolution_options = {"1080x1920 (9:16)": (1080, 1920), 
@@ -927,7 +1105,7 @@ sequence_options = [
     "A-Roll Bookends (A-Roll at start and end only, B-Roll middle)",
     "A-Roll Sandwich (A-Roll at start, middle, and end)",
     "B-Roll Heavy (Only first segment uses A-Roll visual)",
-    "B-Roll Full (All B-Roll visuals with A-Roll audio)",
+    "B-Roll Full (All B-Roll visuals with A-Roll audio) - Prevents audio overlaps",
     "Custom (Manual Arrangement)"
 ]
 st.session_state.selected_sequence = st.selectbox(
@@ -936,6 +1114,13 @@ st.session_state.selected_sequence = st.selectbox(
     index=sequence_options.index(st.session_state.get("selected_sequence", sequence_options[0])),
     key="sequence_selectbox"
 )
+
+# Add warning about audio overlaps in certain presets
+if not "B-Roll Full" in st.session_state.selected_sequence and not "Custom" in st.session_state.selected_sequence:
+    st.info("""
+    ℹ️ **Note:** Some sequence patterns may cause audio overlaps if there are more A-Roll segments than B-Roll segments.
+    If you experience audio overlaps, try the "B-Roll Full" preset or "Custom" arrangement for full control.
+    """)
 
 # If Custom is selected, enable manual editing
 if st.session_state.selected_sequence == "Custom (Manual Arrangement)" and not st.session_state.get("enable_manual_editing", False):
@@ -1282,18 +1467,43 @@ if content_status and segments:
             
             # Display the current manual sequence
             if st.session_state.manual_sequence:
+                # Track audio segments to detect duplicates
+                used_audio_segments = {}
+                has_audio_overlaps = False
+                
                 # Use columns to create a row for each segment with buttons
                 for i, item in enumerate(st.session_state.manual_sequence):
                     cols = st.columns([3, 1, 1, 1])
                     
-                    # Display segment info
+                    # Check if this is an audio overlap
+                    is_overlap = False
+                    segment_id = None
+                    
+                    if item["type"] == "aroll_full":
+                        segment_id = item["aroll_segment_id"]
+                    else:  # broll_with_aroll_audio
+                        segment_id = item["aroll_segment_id"]
+                        
+                    if segment_id in used_audio_segments:
+                        is_overlap = True
+                        has_audio_overlaps = True
+                    else:
+                        used_audio_segments[segment_id] = i
+                    
+                    # Display segment info with warning if it's an overlap
                     if item["type"] == "aroll_full":
                         segment_num = item["aroll_segment_num"]
+                        
+                        # Add warning color if this is an overlap
+                        border_color = "#FF5733" if is_overlap else "#4CAF50"
+                        bg_color = "#FFEBEE" if is_overlap else "#E8F5E9"
+                        warning_text = "<br><small>⚠️ <strong>DUPLICATE AUDIO</strong></small>" if is_overlap else ""
+                        
                         cols[0].markdown(
                             f"""
-                            <div style="text-align:center; border:2px solid #4CAF50; padding:8px; border-radius:5px; background-color:#E8F5E9;">
+                            <div style="text-align:center; border:2px solid {border_color}; padding:8px; border-radius:5px; background-color:{bg_color};">
                             <strong>A-Roll {segment_num + 1}</strong><br>
-                            <small>Full A-Roll segment</small>
+                            <small>Full A-Roll segment{warning_text}</small>
                             </div>
                             """, 
                             unsafe_allow_html=True
@@ -1301,11 +1511,17 @@ if content_status and segments:
                     else:  # broll_with_aroll_audio
                         a_segment_num = item["aroll_segment_num"]
                         b_segment_num = item["broll_segment_num"]
+                        
+                        # Add warning color if this is an overlap
+                        border_color = "#FF5733" if is_overlap else "#2196F3"
+                        bg_color = "#FFEBEE" if is_overlap else "#E3F2FD"
+                        warning_text = "<br><small>⚠️ <strong>DUPLICATE AUDIO</strong></small>" if is_overlap else ""
+                        
                         cols[0].markdown(
                             f"""
-                            <div style="text-align:center; border:2px solid #2196F3; padding:8px; border-radius:5px; background-color:#E3F2FD;">
+                            <div style="text-align:center; border:2px solid {border_color}; padding:8px; border-radius:5px; background-color:{bg_color};">
                             <strong>B-Roll {b_segment_num + 1} + A-Roll {a_segment_num + 1} Audio</strong><br>
-                            <small>B-Roll visuals with A-Roll audio</small>
+                            <small>B-Roll visuals with A-Roll audio{warning_text}</small>
                             </div>
                             """, 
                             unsafe_allow_html=True
@@ -1332,66 +1548,103 @@ if content_status and segments:
                         # Remove this segment
                         st.session_state.manual_sequence.pop(i)
                         st.rerun()
+                
+                # Show audio flow visualization if we have at least two segments
+                if len(st.session_state.manual_sequence) >= 2:
+                    st.markdown("### 🔊 Audio Flow Visualization")
+                    st.markdown("This shows how audio flows through your sequence:")
+                    
+                    # Create a visual representation of the audio flow
+                    audio_flow = ""
+                    for i, item in enumerate(st.session_state.manual_sequence):
+                        if item["type"] == "aroll_full":
+                            segment_num = item["aroll_segment_num"]
+                            segment_id = item["aroll_segment_id"]
+                            
+                            # Check if this is an audio overlap
+                            if segment_id in used_audio_segments and used_audio_segments[segment_id] != i:
+                                audio_flow += f"**[A-{segment_num+1}]** ⚠️ → "
+                            else:
+                                audio_flow += f"**[A-{segment_num+1}]** → "
+                        else:  # broll_with_aroll_audio
+                            a_segment_num = item["aroll_segment_num"]
+                            segment_id = item["aroll_segment_id"]
+                            
+                            # Check if this is an audio overlap
+                            if segment_id in used_audio_segments and used_audio_segments[segment_id] != i:
+                                audio_flow += f"**[A-{a_segment_num+1}]** ⚠️ → "
+                            else:
+                                audio_flow += f"**[A-{a_segment_num+1}]** → "
+                    
+                    # Remove the last arrow
+                    audio_flow = audio_flow[:-4]
+                    
+                    # Display the audio flow
+                    st.markdown(audio_flow)
+                    
+                    # Show warning if there are audio overlaps
+                    if has_audio_overlaps:
+                        st.warning("⚠️ Your sequence contains duplicate audio segments that may cause audio overlaps. Items marked with ⚠️ use audio that appears earlier in the sequence.")
+                
+                # Button to clear the sequence
+                if st.button("Clear Sequence", key="clear_sequence"):
+                    st.session_state.manual_sequence = []
+                    st.rerun()
+                
+                # Button to update the assembly sequence with the manual sequence
+                if st.button("Apply Manual Sequence", key="apply_manual", type="primary"):
+                    # Check if we have any segments in the manual sequence
+                    if not st.session_state.manual_sequence:
+                        st.error("Cannot apply an empty sequence. Please add at least one segment first.")
+                        st.stop()
+                        
+                    # Convert manual sequence to assembly sequence format
+                    assembly_sequence = []
+                    
+                    for item in st.session_state.manual_sequence:
+                        if item["type"] == "aroll_full":
+                            assembly_sequence.append({
+                                "type": "aroll_full",
+                                "aroll_path": item["aroll_path"],
+                                "broll_path": None,
+                                "segment_id": item["aroll_segment_id"]
+                            })
+                        else:  # broll_with_aroll_audio
+                            assembly_sequence.append({
+                                "type": "broll_with_aroll_audio",
+                                "aroll_path": item["aroll_path"],
+                                "broll_path": item["broll_path"],
+                                "segment_id": item["aroll_segment_id"],
+                                "broll_id": item["broll_segment_id"]
+                            })
+                    
+                    # Update the sequence
+                    st.session_state.video_assembly["sequence"] = assembly_sequence
+                    st.session_state.video_assembly["selected_sequence"] = "Custom (Manual Arrangement)"
+                    
+                    # Success message
+                    st.success("Manual sequence applied!")
+                    
+                    # Make sure the sequence is immediately available for assembly
+                    if assembly_sequence:
+                        # Verify all paths exist
+                        missing_files = []
+                        for seq_item in assembly_sequence:
+                            if "aroll_path" in seq_item and not os.path.exists(seq_item["aroll_path"]):
+                                missing_files.append(f"A-Roll file not found: {seq_item['aroll_path']}")
+                            if "broll_path" in seq_item and seq_item["broll_path"] and not os.path.exists(seq_item["broll_path"]):
+                                missing_files.append(f"B-Roll file not found: {seq_item['broll_path']}")
+                        
+                        if missing_files:
+                            st.error("Missing files in sequence:")
+                            for msg in missing_files:
+                                st.warning(msg)
+                        else:
+                            st.success("All files in sequence are valid!")
+                    
+                    st.rerun()
             else:
                 st.info("No segments in the sequence yet. Add segments from the left panel.")
-                
-            # Button to clear the sequence
-            if st.button("Clear Sequence", key="clear_sequence"):
-                st.session_state.manual_sequence = []
-                st.rerun()
-                
-            # Button to update the assembly sequence with the manual sequence
-            if st.button("Apply Manual Sequence", key="apply_manual", type="primary"):
-                # Check if we have any segments in the manual sequence
-                if not st.session_state.manual_sequence:
-                    st.error("Cannot apply an empty sequence. Please add at least one segment first.")
-                    st.stop()
-                    
-                # Convert manual sequence to assembly sequence format
-                assembly_sequence = []
-                
-                for item in st.session_state.manual_sequence:
-                    if item["type"] == "aroll_full":
-                        assembly_sequence.append({
-                            "type": "aroll_full",
-                            "aroll_path": item["aroll_path"],
-                            "broll_path": None,
-                            "segment_id": item["aroll_segment_id"]
-                        })
-                    else:  # broll_with_aroll_audio
-                        assembly_sequence.append({
-                            "type": "broll_with_aroll_audio",
-                            "aroll_path": item["aroll_path"],
-                            "broll_path": item["broll_path"],
-                            "segment_id": item["aroll_segment_id"],
-                            "broll_id": item["broll_segment_id"]
-                        })
-                
-                # Update the sequence
-                st.session_state.video_assembly["sequence"] = assembly_sequence
-                st.session_state.video_assembly["selected_sequence"] = "Custom (Manual Arrangement)"
-                
-                # Success message
-                st.success("Manual sequence applied!")
-                
-                # Make sure the sequence is immediately available for assembly
-                if assembly_sequence:
-                    # Verify all paths exist
-                    missing_files = []
-                    for seq_item in assembly_sequence:
-                        if "aroll_path" in seq_item and not os.path.exists(seq_item["aroll_path"]):
-                            missing_files.append(f"A-Roll file not found: {seq_item['aroll_path']}")
-                        if "broll_path" in seq_item and seq_item["broll_path"] and not os.path.exists(seq_item["broll_path"]):
-                            missing_files.append(f"B-Roll file not found: {seq_item['broll_path']}")
-                    
-                    if missing_files:
-                        st.error("Missing files in sequence:")
-                        for msg in missing_files:
-                            st.warning(msg)
-                    else:
-                        st.success("All files in sequence are valid!")
-                
-                st.rerun()
     
     # Display sequence preview
     st.markdown("The video will be assembled in the following sequence:")

@@ -88,56 +88,32 @@ def simple_assemble_video(sequence, output_path=None, target_resolution=(1080, 1
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path = str(output_dir / f"simple_assembled_video_{timestamp}.mp4")
     
+    # Track used audio to prevent overlaps
+    used_audio_segments = set()
+    
     try:
         if progress_callback:
-            progress_callback(0, "Starting simple video assembly")
+            progress_callback(10, "Processing video segments...")
         
-        # Validate sequence
-        if not sequence or not isinstance(sequence, list):
-            return {
-                "status": "error",
-                "message": "Invalid sequence format"
-            }
-        
-        # Check all input files
-        missing_files = []
-        
+        # Process all clips sequentially
         for i, item in enumerate(sequence):
             if progress_callback:
-                progress_callback(i / len(sequence) * 20, f"Checking file {i+1}/{len(sequence)}")
+                progress_callback(10 + (i / len(sequence) * 50), f"Processing segment {i+1}/{len(sequence)}")
             
-            if item["type"] == "aroll_full":
-                aroll_path = item.get("aroll_path")
-                if not aroll_path or not os.path.exists(aroll_path):
-                    missing_files.append(f"A-Roll file not found: {aroll_path}")
+            # Skip if this segment's audio was already used (avoids audio overlap)
+            segment_id = item.get("segment_id", f"segment_{i}")
+            if segment_id in used_audio_segments:
+                print(f"⚠️ Skipping segment with duplicate audio: {segment_id}")
+                continue
             
-            elif item["type"] == "broll_with_aroll_audio":
-                broll_path = item.get("broll_path")
-                aroll_path = item.get("aroll_path")
-                
-                if not broll_path or not os.path.exists(broll_path):
-                    missing_files.append(f"B-Roll file not found: {broll_path}")
-                
-                if not aroll_path or not os.path.exists(aroll_path):
-                    missing_files.append(f"A-Roll file not found: {aroll_path}")
-        
-        if missing_files:
-            return {
-                "status": "error",
-                "message": "Missing files required for assembly",
-                "missing_files": missing_files
-            }
-        
-        # Process each segment
-        for i, item in enumerate(sequence):
-            if progress_callback:
-                progress_callback(20 + (i / len(sequence) * 60), f"Processing segment {i+1}/{len(sequence)}")
+            # Mark this audio as used
+            used_audio_segments.add(segment_id)
             
             if item["type"] == "aroll_full":
                 aroll_path = item.get("aroll_path")
                 temp_output = os.path.join(temp_dir, f"segment_{i}.mp4")
                 
-                # Scale the A-Roll video to target resolution
+                # Scale A-Roll to target resolution
                 cmd = [
                     "ffmpeg", "-y", "-i", aroll_path,
                     "-vf", f"scale={target_resolution[0]}:{target_resolution[1]}:force_original_aspect_ratio=decrease,pad={target_resolution[0]}:{target_resolution[1]}:(ow-iw)/2:(oh-ih)/2",
@@ -164,13 +140,22 @@ def simple_assemble_video(sequence, output_path=None, target_resolution=(1080, 1
                 
                 subprocess.run(cmd_audio, check=True, capture_output=True)
                 
-                # Scale B-Roll and add A-Roll audio
+                # Get audio duration using ffprobe
+                audio_duration_cmd = [
+                    "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                    "-of", "default=noprint_wrappers=1:nokey=1", temp_audio
+                ]
+                audio_duration_result = subprocess.run(audio_duration_cmd, capture_output=True, text=True, check=True)
+                audio_duration = float(audio_duration_result.stdout.strip())
+                
+                # Scale B-Roll and add A-Roll audio with precise timing
                 cmd = [
                     "ffmpeg", "-y", "-i", broll_path, "-i", temp_audio,
                     "-vf", f"scale={target_resolution[0]}:{target_resolution[1]}:force_original_aspect_ratio=decrease,pad={target_resolution[0]}:{target_resolution[1]}:(ow-iw)/2:(oh-ih)/2",
                     "-c:v", "libx264", "-preset", "medium", "-crf", "23",
                     "-c:a", "aac", "-b:a", "128k",
                     "-shortest",  # End when shortest input stream ends
+                    "-af", "afade=t=in:st=0:d=0.1,afade=t=out:st=" + str(audio_duration-0.1) + ":d=0.1",  # Add gentle fades to prevent clicks
                     temp_output
                 ]
                 
@@ -198,25 +183,20 @@ def simple_assemble_video(sequence, output_path=None, target_resolution=(1080, 1
         
         return {
             "status": "success",
+            "message": "Video assembled successfully",
             "output_path": output_path
-        }
-    
-    except subprocess.SubprocessError as e:
-        return {
-            "status": "error",
-            "message": f"FFmpeg error: {str(e)}"
         }
     except Exception as e:
         return {
             "status": "error",
-            "message": f"Error during simple video assembly: {str(e)}"
+            "message": f"Error assembling video: {str(e)}"
         }
     finally:
         # Clean up
         try:
             shutil.rmtree(temp_dir)
         except Exception as e:
-            print(f"Error cleaning up temporary directory: {str(e)}")
+            print(f"Warning: Failed to clean up temp files: {str(e)}")
 
 if __name__ == "__main__":
     # Test if this script is run directly
