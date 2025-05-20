@@ -1,0 +1,23 @@
+{
+    "prompts": {
+        "segment_0": {
+            "prompt": "A fluffy ginger cat, with wide, expressive emerald green eyes and adorably oversized, velvety black ears, sits on a plush velvet cushion in a warmly lit, sun-drenched study, speaking directly to the viewer with a slightly bewildered and charming expression, cinematic 9:16 aspect ratio, detailed textures, shallow depth of field, golden hour lighting, whimsical and slightly surreal style, emphasizing the cat's unique perspective.",
+            "negative_prompt": "poor quality, blurry, distorted faces, bad anatomy, ugly, unrealistic, deformed, low resolution, amateur, poorly composed, watermark, text, signature, extra limbs, extra fingers, extra toes, jpeg artifacts, oversaturated, unnatural colors, strange proportions, floating objects, out of focus, motion blur, chromatic aberration, grain, noise",
+            "is_video": true,
+            "segment_text": "You just can't see it."
+        },
+        "segment_1": {
+            "prompt": "A ginger tabby cat, with strikingly emerald eyes and oversized ears, sits perched on a worn, velvet armchair, illuminated by warm, golden hour sunlight streaming through a dusty window, speaking directly to the camera with a thoughtful, slightly anxious expression, creating a cozy, intimate 9:16 video with detailed fur textures and subtle bokeh, emphasizing the cat's perceptive gaze and the quietness of the room.",
+            "negative_prompt": "poor quality, blurry, distorted faces, bad anatomy, ugly, unrealistic, deformed, low resolution, amateur, poorly composed, watermark, text, signature, extra limbs, extra fingers, multiple views, out of frame, cropped, jpeg artifacts, noisy, grain, oversaturated, underexposed, motion blur, chromatic aberration, strange colors, unnatural lighting, floating objects, bad reflections, depth of field issues, bokeh artifacts, strange poses, unsettling, creepy, morbid.",
+            "is_video": true,
+            "segment_text": "I hear bugs in the wall."
+        },
+        "segment_2": {
+            "prompt": "A ginger tabby cat, with strikingly emerald eyes and velvety ears, sits perched on a worn velvet armchair, bathed in the warm, diffused glow of a late afternoon sun, speaking directly to the camera with a contemplative expression, cinematic 9:16 aspect ratio, detailed fur texture, soft focus, painterly style, reminiscent of Rembrandt\u2019s lighting, evoking a sense of mystery and quiet observation.",
+            "negative_prompt": "poor quality, blurry, distorted faces, bad anatomy, ugly, unrealistic, deformed, low resolution, amateur, poorly composed, watermark, text, signature, jpeg artifacts, oversaturated, overexposed, underexposed, multiple limbs, extra limbs, extra fingers, extra toes, cropped, tiling, out of frame, disfigured, mutation, gross proportions, bad hands, bad paws, unnatural colors, noisy, grain, chromatic aberration",
+            "is_video": true,
+            "segment_text": "And sometimes, yes\u2014I sense ghosts."
+        }
+    },
+    "broll_type": "videos"
+}

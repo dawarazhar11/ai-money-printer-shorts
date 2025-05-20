@@ -1,0 +1,34 @@
+{
+    "full_script": "You're always asking, 'Why are you staring at nothing?' But it's not nothing. You just can't see it. My eyes and ears pick up frequencies way beyond your weak human perception. I hear bugs in the wall. I see light bouncing off particles you can't comprehend. And sometimes, yes\u2014I sense ghosts. You laugh, but when I bolt across the room and your lights flicker? That's not random. That's a warning. You're welcome.",
+    "segments": [
+        {
+            "type": "A-Roll",
+            "content": "You're always asking, 'Why are you staring at nothing?' But it's not nothing."
+        },
+        {
+            "type": "B-Roll",
+            "content": "You just can't see it."
+        },
+        {
+            "type": "A-Roll",
+            "content": "My eyes and ears pick up frequencies way beyond your weak human perception."
+        },
+        {
+            "type": "B-Roll",
+            "content": "I hear bugs in the wall."
+        },
+        {
+            "type": "A-Roll",
+            "content": "I see light bouncing off particles you can't comprehend."
+        },
+        {
+            "type": "B-Roll",
+            "content": "And sometimes, yes\u2014I sense ghosts."
+        },
+        {
+            "type": "A-Roll",
+            "content": "You laugh, but when I bolt across the room and your lights flicker? That's not random. That's a warning. You're welcome."
+        }
+    ],
+    "theme": "A cat talking about its eyes and ears."
+}

@@ -1,0 +1,58 @@
+import streamlit as st
+import os
+from pathlib import Path
+
+# Set page configuration
+st.set_page_config(
+    page_title="AI Money Printer - Video Shorts Generator",
+    page_icon="💰",
+    layout="centered",
+    initial_sidebar_state="expanded"
+)
+
+# Load custom CSS
+def load_css():
+    css_file = Path("assets/css/style.css")
+    if css_file.exists():
+        with open(css_file, "r") as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
+load_css()
+
+# Create user_data directory if it doesn't exist
+Path("config/user_data").mkdir(parents=True, exist_ok=True)
+
+# App header
+st.title("💰 AI Money Printer Shorts")
+st.subheader("Automate your short-form video production pipeline")
+
+# App description
+st.markdown("""
+### Turn your ideas into engaging short-form videos
+
+This app guides you through creating professional short-form videos by automating the most time-consuming parts of the process.
+
+**Complete the following steps to create your video:**
+
+1. **⚙️ Settings** - Configure your project settings
+2. **📝 Video Blueprint Setup** - Visualize video structure and segments
+3. **✂️ Script Segmentation** - Organize your script into A-Roll and B-Roll sections
+4. **🔍 B-Roll Prompt Generation** - Create optimized prompts for AI-generated visuals
+5. **⚡ Parallel Content Production** - Generate both A-Roll and B-Roll simultaneously
+6. **🎬 Seamless Video Assembly** - Stitch all segments together with perfect timing
+7. **💬 Captioning Enhancement** - Add stylized captions synced with your voice
+8. **🚀 Multi-Platform Publishing** - Export for YouTube, TikTok, and Instagram
+""")
+
+# Get started button
+st.markdown("---")
+
+col1, col2, col3 = st.columns([1, 2, 1])
+
+with col2:
+    if st.button("Get Started 🚀", use_container_width=True, type="primary"):
+        st.switch_page("pages/1_Settings.py")
+
+# Footer
+st.markdown("---")
+st.caption("AI Money Printer Shorts Generator | v1.0.0")

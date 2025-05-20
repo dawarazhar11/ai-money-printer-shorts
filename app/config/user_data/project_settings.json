@@ -1,0 +1,7 @@
+{
+    "project_name": "My Short Video",
+    "video_duration": 30,
+    "broll_segments": 3,
+    "resolution": "480x736",
+    "max_broll_duration": 5
+}

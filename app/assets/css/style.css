@@ -1,0 +1,118 @@
+/* Custom styling for AI Money Printer Shorts app */
+
+/* Main containers */
+.main {
+    background-color: #f8f9fa;
+    color: #212529;
+    font-family: 'Inter', sans-serif;
+}
+
+/* Header styling */
+h1, h2, h3 {
+    font-weight: 700;
+    color: #073b4c;
+}
+
+/* Card-like containers */
+div.element-container div.stButton > button {
+    border-radius: 8px;
+    transition: all 0.2s ease;
+}
+
+div.element-container div.stButton > button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+}
+
+/* Primary buttons */
+button[kind="primary"] {
+    background-color: #ff9f1c;
+    color: white;
+    font-weight: 600;
+}
+
+button[kind="primary"]:hover {
+    background-color: #f08700;
+}
+
+/* Sidebar styling */
+section[data-testid="stSidebar"] {
+    background-color: #2a2d34;
+    color: #ffffff;
+    padding: 1rem 0;
+}
+
+section[data-testid="stSidebar"] button {
+    background-color: #3a3f4a;
+    color: #ffffff;
+    border: none;
+    margin: 0.25rem 0;
+    text-align: left;
+}
+
+section[data-testid="stSidebar"] button:hover {
+    background-color: #4a4f5a;
+}
+
+/* Progress bar */
+div[data-testid="stProgress"] > div {
+    background-color: #06d6a0;
+}
+
+/* Info boxes */
+div.stAlert {
+    border-radius: 8px;
+    padding: 0.75rem;
+}
+
+div.element-container div.stAlert[data-baseweb="notification"] {
+    margin-bottom: 1rem;
+}
+
+/* Input fields */
+div[data-baseweb="input"] {
+    border-radius: 8px;
+}
+
+/* Expander styling */
+details {
+    border-radius: 8px;
+    background-color: #ffffff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Form styling */
+div[data-testid="stForm"] {
+    background-color: #ffffff;
+    padding: 1rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+/* Step navigation */
+.step-navigation {
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid #e9ecef;
+}
+
+/* Animation for success messages */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+div[data-testid="stNotification"] {
+    animation: fadeIn 0.3s ease-out forwards;
+    border-radius: 8px;
+}
+
+/* Footer styling */
+footer {
+    margin-top: 3rem;
+    padding-top: 1rem;
+    font-size: 0.8rem;
+    color: #6c757d;
+    border-top: 1px solid #e9ecef;
+    text-align: center;
+} 
