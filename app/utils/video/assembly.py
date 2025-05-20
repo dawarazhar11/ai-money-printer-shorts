@@ -200,20 +200,21 @@ def check_audio_overlaps(sequence):
         dict: Result containing status and any overlap warnings
     """
     warnings = []
-    previous_segment = None
+    used_audio_segments = {}
     
     for i, item in enumerate(sequence):
         segment_id = item.get("segment_id", f"segment_{i}")
         
-        # Check if we're using the same A-Roll audio for consecutive segments
-        if previous_segment and previous_segment.get("segment_id") == segment_id:
-            warnings.append(f"Segment {i}: Using same A-Roll audio as previous segment ({segment_id})")
-        
-        previous_segment = item
+        # Track which A-Roll audio segments are being used
+        if segment_id in used_audio_segments:
+            warnings.append(f"Segment {i+1}: Using same A-Roll audio ({segment_id}) that was already used in segment {used_audio_segments[segment_id]+1}")
+        else:
+            used_audio_segments[segment_id] = i
     
     return {
         "has_overlaps": len(warnings) > 0,
-        "warnings": warnings
+        "warnings": warnings,
+        "used_segments": used_audio_segments
     }
 
 # Add this function to extract audio from video file to separate audio file
@@ -321,6 +322,9 @@ def assemble_video(sequence, target_resolution=(1080, 1920), output_dir=None, pr
         }
     
     try:
+        # Generate a timestamp for the output file - defined here so it's available for all code paths
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
         # Extract audio from all A-Roll segments first
         audio_temp_dir = tempfile.mkdtemp()
         extracted_audio_paths = {}
@@ -480,11 +484,8 @@ def assemble_video(sequence, target_resolution=(1080, 1920), output_dir=None, pr
         
         # Set output path
         if output_dir is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_dir = os.path.join(os.getcwd(), "output")
             os.makedirs(output_dir, exist_ok=True)
-        else:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
         output_path = os.path.join(output_dir, f"assembled_video_{timestamp}.mp4")
         
