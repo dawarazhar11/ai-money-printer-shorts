@@ -1,0 +1,45 @@
+{
+  "videos": [
+    {
+      "segment_id": "5169ef5a328149a8b13c365ee7060106",
+      "segment_name": "SEG1",
+      "status": "success",
+      "local_path": "media/a-roll/heygen_5169ef5a328149a8b13c365ee7060106.mp4",
+      "duration": 5.878,
+      "downloaded": true
+    },
+    {
+      "segment_id": "aed87db0234e4965825c7ee4c1067467",
+      "segment_name": "SEG2",
+      "status": "success",
+      "local_path": "media/a-roll/heygen_aed87db0234e4965825c7ee4c1067467.mp4",
+      "duration": 6.922,
+      "downloaded": true
+    },
+    {
+      "segment_id": "e7d47355c21e4190bad8752c799343ee",
+      "segment_name": "SEG3",
+      "status": "success",
+      "local_path": "media/a-roll/heygen_e7d47355c21e4190bad8752c799343ee.mp4",
+      "duration": 8.02,
+      "downloaded": true
+    },
+    {
+      "segment_id": "36064085e2a240768a8368bc6a911aea",
+      "segment_name": "SEG4",
+      "status": "success",
+      "local_path": "media/a-roll/heygen_36064085e2a240768a8368bc6a911aea.mp4",
+      "duration": 8.725,
+      "downloaded": true
+    }
+  ],
+  "total_duration": 29.545,
+  "successful_fetches": 4,
+  "fetch_time": "2025-05-20 11:19:29",
+  "segment_mapping": {
+    "SEG1": "5169ef5a328149a8b13c365ee7060106",
+    "SEG2": "aed87db0234e4965825c7ee4c1067467",
+    "SEG3": "e7d47355c21e4190bad8752c799343ee",
+    "SEG4": "36064085e2a240768a8368bc6a911aea"
+  }
+}

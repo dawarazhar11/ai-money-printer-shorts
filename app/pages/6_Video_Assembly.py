@@ -1,12 +1,18 @@
 import streamlit as st
 import os
 import sys
-import json
 from pathlib import Path
 import numpy as np
 import time
 from datetime import datetime
 import cv2
+
+# Add the parent directory to the Python path to allow importing from app modules
+app_root = Path(__file__).parent.parent.absolute()
+if str(app_root) not in sys.path:
+    sys.path.insert(0, str(app_root))
+    print(f"Added {app_root} to path")
+    print("Successfully imported local modules")
 
 # Try to import MoviePy, show helpful error if not available
 try:
@@ -25,66 +31,14 @@ except ImportError:
     resize = lambda *args, **kwargs: None
     speedx = lambda *args, **kwargs: None
 
-# Fix import paths - search for the components directory
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
+# Import other modules
+from components.progress import render_step_header
+from components.navigation import render_workflow_navigation, render_step_navigation
+from utils.session_state import get_settings, get_project_path, mark_step_complete
 
-# Try to find the components directory
-components_path = os.path.join(parent_dir, 'components')
-if not os.path.exists(components_path):
-    # We might be in the wrong directory structure, try a different approach
-    print(f"Components not found at {components_path}, trying alternative paths")
-    if 'AI-Money-Printer-Shorts' in parent_dir:
-        # We're likely in the main project directory structure
-        project_root = parent_dir
-        while os.path.basename(project_root) != 'AI-Money-Printer-Shorts' and os.path.dirname(project_root) != project_root:
-            project_root = os.path.dirname(project_root)
-        
-        # Add all potential paths
-        app_dir = os.path.join(project_root, 'app')
-        if os.path.exists(app_dir) and app_dir not in sys.path:
-            sys.path.insert(0, app_dir)
-            print(f"Added {app_dir} to path")
-        
-        if project_root not in sys.path:
-            sys.path.insert(0, project_root)
-            print(f"Added {project_root} to path")
-    
-    # Add parent directory as a last resort
-    if parent_dir not in sys.path:
-        sys.path.insert(0, parent_dir)
-        print(f"Added {parent_dir} to path")
-else:
-    # Just add the parent directory which contains the components
-    if parent_dir not in sys.path:
-        sys.path.insert(0, parent_dir)
-        print(f"Added {parent_dir} to path")
-
-# Try to import local modules
-try:
-    from components.navigation import render_workflow_navigation, render_step_navigation
-    from components.progress import render_step_header
-    from utils.session_state import get_settings, get_project_path, mark_step_complete
-    print("Successfully imported local modules")
-except ImportError as e:
-    st.error(f"Failed to import local modules: {str(e)}")
-    st.info("Please check your directory structure and make sure the app is running from the correct directory.")
-    print(f"Import error: {str(e)}")
-    print(f"Current sys.path: {sys.path}")
-    
-    # Define fallback functions in case imports fail
-    def render_workflow_navigation():
-        st.sidebar.title("Navigation")
-        st.sidebar.warning("Navigation component failed to load")
-    
-    def render_step_header(step_number, step_name, total_steps):
-        st.header(f"{step_number}/{total_steps} {step_name}")
-    
-    def get_settings():
-        return {}
-    
-    def get_project_path():
-        return Path(".")
+# Rest of the imports
+import json
+from pathlib import Path
 
 # Set page configuration
 st.set_page_config(

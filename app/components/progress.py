@@ -26,6 +26,14 @@ def render_progress_bar():
 
 def render_step_header(step_number, step_name, total_steps=8):
     """Render a header with step information"""
+    # Convert step_number to int if it's a string
+    if isinstance(step_number, str):
+        try:
+            step_number = int(step_number)
+        except ValueError:
+            # Default to 1 if conversion fails
+            step_number = 1
+    
     st.subheader(f"Step {step_number} of {total_steps}: {step_name}")
     
     # Calculate normalized progress value (0-1 range)
