@@ -1,0 +1,65 @@
+# Python virtual environment
+.venv/
+venv/
+env/
+ENV/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Temporary media files
+temp-audio.m4a
+*.temp.*
+*.tmp
+
+# Generated output
+output/
+*/output/
+*/*/output/
+media/processed/
+
+# Logs
+*.log
+logs/
+
+# OS specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Media files (uncommenting these may be necessary if media files are large)
+# media/a-roll/
+# media/b-roll/
+# *.mp4
+# *.m4a
+# *.wav
+# *.mp3
+
+# Large model files
+*.model
+*.pth
+*.h5
+*.ckpt
+
+# Config files with sensitive information (uncomment if needed)
+# config/secrets.json
+# .env 
