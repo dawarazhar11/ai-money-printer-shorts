@@ -1688,8 +1688,8 @@ with col2:
         # Force cache invalidation warning
         st.warning("⚠️ **IMPORTANT**: If you still see old IDs below, please clear your browser cache and refresh the page.")
         
-        # Completely new implementation using unique IDs
-        broll_ids = {
+        # Default IDs to use only if nothing is in session state
+        default_broll_ids = {
             "segment_0": "ca26f439-3be6-4897-9e8a-d56448f4bb9a",
             "segment_1": "15027251-6c76-4aee-b5d1-adddfa591257", 
             "segment_2": "8f34773a-a113-494b-be8a-e5ecd241a8a4"
@@ -1702,17 +1702,20 @@ with col2:
             segment_id = f"segment_{i}"
             unique_key = f"broll_id_new_{segment_id}_{timestamp}_{i}"
             
+            # Get the current ID value from session state (if exists) or use default
+            current_id = st.session_state.broll_fetch_ids.get(segment_id, default_broll_ids.get(segment_id, ""))
+            
             col1, col2 = st.columns([4, 1])
             with col1:
                 b_roll_id = st.text_input(
                     f"B-Roll ID for Segment {i+1}",
-                    value=broll_ids[segment_id],
+                    value=current_id,
                     key=unique_key
                 )
             with col2:
                 if st.button(f"Reset", key=f"reset_btn_{segment_id}_{timestamp}"):
-                    # This will be handled on the next rerun
-                    st.session_state[unique_key] = broll_ids[segment_id]
+                    # Reset to default ID
+                    st.session_state[unique_key] = default_broll_ids.get(segment_id, "")
                     st.rerun()
                     
             # Store in session state

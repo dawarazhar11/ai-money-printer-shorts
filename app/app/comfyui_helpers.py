@@ -434,6 +434,10 @@ def generate_broll_sequentially(segments_data, api_url=None, project_path=None):
     progress_bar.progress(1.0)
     status_text.text(f"Completed submitting {total_segments} segments! Use 'Fetch Content' when jobs are complete.")
     
+    # Save content status to persist the prompt IDs
+    if save_function and callable(save_function):
+        save_function()
+    
     # Provide a summary of submitted jobs
     st.success(f"Successfully submitted {sum(1 for r in results.values() if r.get('status') == 'submitted')} jobs to ComfyUI.")
     
