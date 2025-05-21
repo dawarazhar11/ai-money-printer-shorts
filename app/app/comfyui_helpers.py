@@ -5,8 +5,9 @@ import json
 import requests
 import time
 import random
+import threading
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Import comfyui_api module for improved job handling
 COMFYUI_API_AVAILABLE = False
@@ -465,6 +466,40 @@ def render_broll_generation_section(unique_key="main", project_path=None, save_f
         time.sleep(0.5)  # Short delay to ensure state is updated
         st.rerun()
     
+    # Add seconds per video configuration
+    with broll_gen_col:
+        st.subheader("B-Roll Generation Options")
+        
+        # Add auto-fetch configuration
+        st.markdown("##### Auto-Fetch Configuration")
+        
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            st.markdown("""
+            Set the average seconds it takes to generate one video. This will be used to calculate
+            when auto-fetch attempts should be made.
+            """)
+            
+        with col2:
+            # Store this value in session state to persist across reruns
+            if "seconds_per_video" not in st.session_state:
+                st.session_state.seconds_per_video = 300
+                
+            seconds_per_video = st.number_input(
+                "Seconds per Video",
+                min_value=10,
+                max_value=1800,
+                value=st.session_state.seconds_per_video,
+                step=10,
+                help="Set the average time in seconds it takes to generate one video",
+                key=f"seconds_per_video_{unique_key}"
+            )
+            
+            # Update session state
+            st.session_state.seconds_per_video = seconds_per_video
+            
+        st.markdown("---")
+    
     with broll_gen_col:
         if st.button("🎨 Generate All B-Roll", type="primary", key=f"generate_broll_{unique_key}", use_container_width=True):
             # Capture all required data before starting
@@ -495,6 +530,14 @@ def render_broll_generation_section(unique_key="main", project_path=None, save_f
                     success_count = sum(1 for r in result.values() if r.get('status') == 'submitted')
                     st.success(f"Completed B-roll submission: {success_count} jobs out of {len(broll_segments)} segments.")
                     
+                    # Schedule auto-fetch attempts
+                    auto_fetch_config = schedule_auto_fetch(
+                        broll_segments, 
+                        project_path=project_path,
+                        save_function=save_function,
+                        seconds_per_video=seconds_per_video
+                    )
+                    
                     # Set flag for automatic page refresh
                     st.session_state.should_rerun_after_broll_gen = True
                     
@@ -505,4 +548,240 @@ def render_broll_generation_section(unique_key="main", project_path=None, save_f
                     
                     # Force a rerun after 1 second
                     time.sleep(1)
-                    st.rerun() 
+                    st.rerun()
+
+# Function to schedule automatic fetches based on the number of segments and time per video
+def schedule_auto_fetch(segments_data, api_url=None, project_path=None, save_function=None, seconds_per_video=300):
+    """Schedule automatic fetches with increasing delays based on number of segments
+    
+    Args:
+        segments_data: Dictionary of segments to process
+        api_url: URL of the ComfyUI API
+        project_path: Path to project directory
+        save_function: Function to save content status
+        seconds_per_video: Seconds it typically takes to generate one video
+    """
+    if api_url is None:
+        api_url = "http://100.115.243.42:8000"
+    
+    # Get segment IDs
+    segment_ids = list(segments_data.keys())
+    num_segments = len(segment_ids)
+    
+    # Calculate wait time
+    total_wait_time = num_segments * seconds_per_video
+    
+    # Status display placeholder
+    status_container = st.empty()
+    
+    # Create a status message with estimates
+    first_fetch_time = datetime.now() + timedelta(seconds=total_wait_time)
+    second_fetch_time = first_fetch_time + timedelta(seconds=100)
+    third_fetch_time = second_fetch_time + timedelta(seconds=200)
+    
+    status_container.info(f"""
+    ### Auto-Fetch Scheduled:
+    - First attempt: {first_fetch_time.strftime('%H:%M:%S')} (in {total_wait_time} seconds)
+    - Second attempt: {second_fetch_time.strftime('%H:%M:%S')} (in {total_wait_time + 100} seconds)
+    - Third attempt: {third_fetch_time.strftime('%H:%M:%S')} (in {total_wait_time + 300} seconds)
+    
+    You can still use the "Fetch Content" button at any time to check manually.
+    """)
+    
+    # Get the prompt IDs from session state
+    prompt_ids = {}
+    if "broll_fetch_ids" in st.session_state:
+        for segment_id in segment_ids:
+            if segment_id in st.session_state.broll_fetch_ids:
+                prompt_ids[segment_id] = st.session_state.broll_fetch_ids[segment_id]
+    
+    # Start the auto-fetch timer in a background thread
+    thread = threading.Thread(
+        target=_run_auto_fetch,
+        args=(prompt_ids, api_url, project_path, save_function, status_container, 
+              total_wait_time, [100, 200])
+    )
+    thread.daemon = True
+    thread.start()
+    
+    # Return a message for confirmation
+    return {
+        "status": "scheduled",
+        "first_fetch": total_wait_time,
+        "second_fetch": total_wait_time + 100,
+        "third_fetch": total_wait_time + 300
+    }
+
+# Background thread function for auto-fetch
+def _run_auto_fetch(prompt_ids, api_url, project_path, save_function, status_container, 
+                    initial_delay, additional_delays):
+    """Run auto-fetch in background thread with multiple attempts
+    
+    Args:
+        prompt_ids: Dictionary mapping segment_id to prompt_id
+        api_url: URL of the ComfyUI API
+        project_path: Path to project directory
+        save_function: Function to save content status
+        status_container: Streamlit container for status updates
+        initial_delay: Seconds to wait before first fetch
+        additional_delays: List of additional delays between subsequent fetches
+    """
+    # Sleep until first fetch time
+    for i in range(initial_delay):
+        # Update status every 10 seconds
+        if i % 10 == 0:
+            time_left = initial_delay - i
+            status_container.info(f"### Auto-Fetch Status\nWaiting for first fetch in {time_left} seconds...")
+        time.sleep(1)
+    
+    # Run first fetch
+    status_container.warning("🔄 Running first auto-fetch...")
+    fetch_results_1 = _perform_fetch(prompt_ids, api_url, project_path)
+    
+    # If not all fetches were successful and we have more attempts
+    if fetch_results_1["not_ready"] and len(additional_delays) > 0:
+        # Sleep until second fetch time
+        for i in range(additional_delays[0]):
+            if i % 10 == 0:
+                time_left = additional_delays[0] - i
+                status_container.info(f"### Auto-Fetch Status\nWaiting for second fetch in {time_left} seconds...")
+            time.sleep(1)
+            
+        # Run second fetch but only for items that weren't ready
+        status_container.warning("🔄 Running second auto-fetch...")
+        prompt_ids_2 = {segment_id: prompt_id for segment_id, prompt_id in prompt_ids.items() 
+                       if segment_id in fetch_results_1["not_ready"]}
+        fetch_results_2 = _perform_fetch(prompt_ids_2, api_url, project_path)
+        
+        # If still not all fetches were successful and we have more attempts
+        if fetch_results_2["not_ready"] and len(additional_delays) > 1:
+            # Sleep until third fetch time
+            for i in range(additional_delays[1]):
+                if i % 10 == 0:
+                    time_left = additional_delays[1] - i
+                    status_container.info(f"### Auto-Fetch Status\nWaiting for third fetch in {time_left} seconds...")
+                time.sleep(1)
+                
+            # Run third fetch but only for items that weren't ready
+            status_container.warning("🔄 Running third auto-fetch...")
+            prompt_ids_3 = {segment_id: prompt_id for segment_id, prompt_id in prompt_ids.items() 
+                           if segment_id in fetch_results_2["not_ready"]}
+            fetch_results_3 = _perform_fetch(prompt_ids_3, api_url, project_path)
+            
+            # Final status update
+            if fetch_results_3["not_ready"]:
+                status_container.error(f"⚠️ Auto-fetch complete. {len(fetch_results_3['not_ready'])} segments still not ready.")
+            else:
+                status_container.success("✅ All content successfully fetched!")
+        else:
+            # Final status update after second fetch
+            if fetch_results_2["not_ready"]:
+                status_container.error(f"⚠️ Auto-fetch complete. {len(fetch_results_2['not_ready'])} segments still not ready.")
+            else:
+                status_container.success("✅ All content successfully fetched!")
+    else:
+        # Final status update after first fetch
+        if fetch_results_1["not_ready"]:
+            status_container.error(f"⚠️ Auto-fetch complete. {len(fetch_results_1['not_ready'])} segments still not ready.")
+        else:
+            status_container.success("✅ All content successfully fetched!")
+    
+    # Save content status after all fetches
+    if save_function and callable(save_function):
+        try:
+            save_function()
+        except Exception as e:
+            print(f"Error saving content status: {str(e)}")
+
+# Helper function to perform fetch for each prompt ID
+def _perform_fetch(prompt_ids, api_url, project_path):
+    """Perform fetch for each prompt ID and return results
+    
+    Args:
+        prompt_ids: Dictionary mapping segment_id to prompt_id
+        api_url: URL of the ComfyUI API
+        project_path: Path to project directory
+        
+    Returns:
+        Dictionary with results summary
+    """
+    successful = []
+    not_ready = []
+    failed = []
+    
+    # If there's no session state, we can't update it
+    if "content_status" not in st.session_state or "broll" not in st.session_state.content_status:
+        return {"successful": [], "not_ready": list(prompt_ids.keys()), "failed": []}
+        
+    # Process each prompt ID
+    for segment_id, prompt_id in prompt_ids.items():
+        # Skip if prompt ID is empty
+        if not prompt_id:
+            continue
+            
+        # Set status to "fetching" to show progress
+        st.session_state.content_status["broll"][segment_id] = {
+            "status": "fetching",
+            "prompt_id": prompt_id,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        # Fetch the content
+        result = fetch_content_by_id(prompt_id, api_url)
+        
+        if result["status"] == "success":
+            # Determine file extension based on content type
+            content_type = result.get("type", "image")
+            file_ext = "mp4" if content_type == "video" else "png"
+            
+            # Save the fetched content
+            try:
+                file_path = save_media_content(
+                    result["content"], 
+                    "broll",
+                    segment_id,
+                    file_ext,
+                    project_path
+                )
+                
+                st.session_state.content_status["broll"][segment_id] = {
+                    "status": "complete",
+                    "file_path": file_path,
+                    "prompt_id": prompt_id,
+                    "content_type": content_type,
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                successful.append(segment_id)
+            except Exception as e:
+                st.session_state.content_status["broll"][segment_id] = {
+                    "status": "error",
+                    "message": f"Error saving content: {str(e)}",
+                    "prompt_id": prompt_id,
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                failed.append(segment_id)
+        elif result["status"] == "processing":
+            # Content is still being generated
+            st.session_state.content_status["broll"][segment_id] = {
+                "status": "waiting",
+                "message": "ComfyUI job still processing. Try again later.",
+                "prompt_id": prompt_id,
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            not_ready.append(segment_id)
+        else:
+            # Error fetching content
+            st.session_state.content_status["broll"][segment_id] = {
+                "status": "error",
+                "message": result.get("message", "Unknown error fetching content"),
+                "prompt_id": prompt_id,
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            failed.append(segment_id)
+    
+    # Return summary of results
+    return {
+        "successful": successful,
+        "not_ready": not_ready,
+        "failed": failed
+    } 
