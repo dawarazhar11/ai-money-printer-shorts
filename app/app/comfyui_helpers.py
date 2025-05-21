@@ -392,106 +392,50 @@ def generate_broll_sequentially(segments_data, api_url=None, project_path=None):
                         results[segment_id] = {"status": "error", "message": f"Job submission failed: {response.status_code} - {error_msg}"}
                         continue
                 
-                st.info(f"Job submitted with ID: {prompt_id}")
+                st.success(f"Job submitted with ID: {prompt_id}")
                 
                 # Store the prompt ID
                 if "broll_fetch_ids" not in st.session_state:
                     st.session_state.broll_fetch_ids = {}
                 st.session_state.broll_fetch_ids[segment_id] = prompt_id
-            except Exception as e:
-                st.error(f"Error submitting job: {str(e)}")
-                results[segment_id] = {"status": "error", "message": f"Job submission error: {str(e)}"}
-                continue
-            
-            # Fetch content
-            st.info("Waiting for content generation to complete...")
-            fetch_result = periodic_content_fetch(prompt_id, api_url)
-            
-            if fetch_result["status"] == "success":
-                # Save content
-                content = fetch_result["content"]
-                file_ext = "mp4" if content_type == "video" else "png"
-                file_path = save_media_content(content, "broll", segment_id, file_ext, project_path)
                 
-                # Update status
+                # Update content status to processing
                 if "content_status" in st.session_state and "broll" in st.session_state.content_status:
                     st.session_state.content_status["broll"][segment_id] = {
-                        "status": "complete",
-                        "file_path": file_path,
+                        "status": "processing",
                         "prompt_id": prompt_id,
                         "content_type": content_type,
                         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     }
                 
-                # Display result
-                st.success(f"Successfully generated {content_type} for segment {segment_id}")
-                if content_type == "video":
-                    st.video(file_path)
-                else:
-                    st.image(file_path)
-                    
+                # Store successful submission in results
                 results[segment_id] = {
-                    "status": "success", 
-                    "file_path": file_path,
-                    "prompt_id": prompt_id
+                    "status": "submitted", 
+                    "prompt_id": prompt_id,
+                    "content_type": content_type
                 }
-            else:
-                # Try direct download for AnimateDiff patterns
-                if content_type == "video":
-                    downloaded = False
-                    possible_files = [f"animation_{i:05d}.mp4" for i in range(1, 10)]
-                    
-                    for filename in possible_files:
-                        file_url = f"{api_url}/view?filename={filename}"
-                        try:
-                            response = requests.head(file_url, timeout=5)
-                            if response.status_code == 200:
-                                content_response = requests.get(file_url, timeout=60)
-                                if content_response.status_code == 200:
-                                    # Save file
-                                    file_path = save_media_content(content_response.content, "broll", segment_id, "mp4", project_path)
-                                    
-                                    # Update status
-                                    if "content_status" in st.session_state and "broll" in st.session_state.content_status:
-                                        st.session_state.content_status["broll"][segment_id] = {
-                                            "status": "complete",
-                                            "file_path": file_path,
-                                            "prompt_id": prompt_id,
-                                            "content_type": "video",
-                                            "filename": filename,
-                                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                        }
-                                    
-                                    st.success(f"Found and downloaded video from pattern {filename}")
-                                    st.video(file_path)
-                                    
-                                    results[segment_id] = {
-                                        "status": "success", 
-                                        "file_path": file_path,
-                                        "prompt_id": prompt_id
-                                    }
-                                    downloaded = True
-                                    break
-                        except Exception as e:
-                            st.warning(f"Error checking file {filename}: {str(e)}")
                 
-                    if not downloaded:
-                        st.error(f"Failed to generate content: {fetch_result.get('message', 'Unknown error')}")
-                        results[segment_id] = {"status": "error", "message": fetch_result.get('message', 'Content generation failed')}
-                else:
-                    st.error(f"Failed to generate content: {fetch_result.get('message', 'Unknown error')}")
-                    results[segment_id] = {"status": "error", "message": fetch_result.get('message', 'Content generation failed')}
+                # IMPORTANT: Do not try to fetch content automatically
+                st.info("Content generation job is now in queue. You can fetch the content later using the 'Fetch Content' button.")
+                
+            except Exception as e:
+                st.error(f"Error submitting job: {str(e)}")
+                results[segment_id] = {"status": "error", "message": f"Job submission error: {str(e)}"}
+                continue
             
             # Add a separator between segments
             st.divider()
             
             # Wait a bit before next job to give ComfyUI time to recover
             if idx < total_segments - 1:
-                time.sleep(3)
+                time.sleep(1)
     
     # Update final progress
     progress_bar.progress(1.0)
-    status_text.text(f"Completed processing {total_segments} segments!")
+    status_text.text(f"Completed submitting {total_segments} segments! Use 'Fetch Content' when jobs are complete.")
+    
+    # Provide a summary of submitted jobs
+    st.success(f"Successfully submitted {sum(1 for r in results.values() if r.get('status') == 'submitted')} jobs to ComfyUI.")
     
     return results
 

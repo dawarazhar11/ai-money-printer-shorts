@@ -556,15 +556,50 @@ def fetch_comfyui_job_history(api_url, limit=20):
 def fetch_comfyui_content_by_id(api_url, prompt_id):
     try:
         # First check if the job exists in history
-        history_response = requests.get(f"{api_url}/history/{prompt_id}", timeout=10)
+        history_url = f"{api_url}/history/{prompt_id}"
+        history_response = requests.get(history_url, timeout=30)  # Longer timeout
         
         if history_response.status_code != 200:
-            return {"status": "error", "message": f"Error fetching history: {history_response.status_code}"}
+            st.warning(f"Error fetching history: {history_response.status_code}. Server might be busy, try again later.")
+            return {"status": "error", "message": f"Error fetching history: {history_response.status_code}. Server might be busy."}
             
         job_data = history_response.json()
         
         # Check if job data exists
         if prompt_id not in job_data:
+            st.warning(f"Prompt ID '{prompt_id}' not found in history. The job may have been deleted or hasn't been submitted yet.")
+            
+            # Try fallback to queue check
+            try:
+                queue_response = requests.get(f"{api_url}/queue", timeout=10)
+                if queue_response.status_code == 200:
+                    queue_data = queue_response.json()
+                    
+                    # Check if our job is in the queue
+                    in_queue = False
+                    queue_position = 0
+                    
+                    if "queue_running" in queue_data:
+                        for idx, item in enumerate(queue_data["queue_running"]):
+                            if item.get("prompt_id") == prompt_id:
+                                in_queue = True
+                                st.info(f"Job {prompt_id} is currently running!")
+                                return {"status": "processing", "message": "Job is currently running"}
+                    
+                    if "queue_pending" in queue_data:
+                        for idx, item in enumerate(queue_data["queue_pending"]):
+                            if item.get("prompt_id") == prompt_id:
+                                in_queue = True
+                                queue_position = idx + 1
+                                st.info(f"Job {prompt_id} is in queue at position {queue_position}")
+                                return {"status": "processing", "message": f"Job is in queue at position {queue_position}"}
+                    
+                    if not in_queue:
+                        st.error(f"Job {prompt_id} is not in the history or queue. It may have been deleted or never submitted.")
+                        return {"status": "error", "message": "Prompt ID not found in history or queue"}
+            except Exception as e:
+                st.error(f"Failed to check queue: {str(e)}")
+                
             return {"status": "error", "message": "Prompt ID not found in history"}
             
         # Get the job data
@@ -602,7 +637,7 @@ def fetch_comfyui_content_by_id(api_url, prompt_id):
                         
                         # Download the file directly using the /view endpoint
                         file_url = f"{api_url}/view?filename={filename}"
-                        content_response = requests.get(file_url, timeout=30)
+                        content_response = requests.get(file_url, timeout=60)  # Longer timeout for file downloads
                         
                         if content_response.status_code == 200:
                             return {
@@ -622,7 +657,7 @@ def fetch_comfyui_content_by_id(api_url, prompt_id):
                             if filename:
                                 # Download the video file
                                 file_url = f"{api_url}/view?filename={filename}"
-                                content_response = requests.get(file_url, timeout=60)  # Longer timeout for videos
+                                content_response = requests.get(file_url, timeout=120)  # Even longer timeout for video downloads
                                 
                                 if content_response.status_code == 200:
                                     return {
@@ -632,6 +667,30 @@ def fetch_comfyui_content_by_id(api_url, prompt_id):
                                         "prompt_id": prompt_id,
                                         "type": "video"
                                     }
+            
+            # If we couldn't find standard outputs, try checking for AnimateDiff outputs
+            # These might be directly accessible via filename pattern
+            if job_status == "success":
+                # Try common AnimateDiff filename patterns
+                possible_files = [f"animation_{i:05d}.mp4" for i in range(1, 10)]
+                for filename in possible_files:
+                    try:
+                        file_url = f"{api_url}/view?filename={filename}"
+                        response = requests.head(file_url, timeout=10)
+                        
+                        if response.status_code == 200:
+                            content_response = requests.get(file_url, timeout=120)
+                            if content_response.status_code == 200:
+                                return {
+                                    "status": "success",
+                                    "content": content_response.content,
+                                    "filename": filename,
+                                    "prompt_id": prompt_id,
+                                    "type": "video",
+                                    "note": "Found using filename pattern"
+                                }
+                    except Exception as e:
+                        print(f"Error checking AnimateDiff file {filename}: {str(e)}")
             
             # If we got here, we couldn't find any output files
             return {"status": "error", "message": "No output file found in job results"}
@@ -649,9 +708,9 @@ def fetch_comfyui_content_by_id(api_url, prompt_id):
             return {"status": "processing", "message": "Job is still processing"}
             
     except requests.exceptions.Timeout:
-        return {"status": "error", "message": "Timeout while fetching content"}
+        return {"status": "error", "message": "Timeout while fetching content. The server may be busy."}
     except requests.exceptions.ConnectionError:
-        return {"status": "error", "message": f"Could not connect to ComfyUI API at {api_url}"}
+        return {"status": "error", "message": f"Could not connect to ComfyUI API at {api_url}. The server might be down."}
     except Exception as e:
         return {"status": "error", "message": f"Error fetching content: {str(e)}"}
 
