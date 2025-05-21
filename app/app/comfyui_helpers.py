@@ -455,6 +455,16 @@ def render_broll_generation_section(unique_key="main", project_path=None, save_f
     # Create a single column for B-roll generation (removing the two-column approach)
     broll_gen_col = st.container()
     
+    # Create a key in session state to track if we need to rerun
+    if "should_rerun_after_broll_gen" not in st.session_state:
+        st.session_state.should_rerun_after_broll_gen = False
+    
+    # Check if we need to rerun based on previous submission
+    if st.session_state.should_rerun_after_broll_gen:
+        st.session_state.should_rerun_after_broll_gen = False
+        time.sleep(0.5)  # Short delay to ensure state is updated
+        st.rerun()
+    
     with broll_gen_col:
         if st.button("🎨 Generate All B-Roll", type="primary", key=f"generate_broll_{unique_key}", use_container_width=True):
             # Capture all required data before starting
@@ -471,20 +481,28 @@ def render_broll_generation_section(unique_key="main", project_path=None, save_f
             if not broll_segments:
                 st.error("No B-roll segments to process. Please create segments first.")
             else:
-                # Generate B-roll sequentially
-                st.subheader("B-Roll Generation in Progress")
-                result = generate_broll_sequentially(broll_segments, project_path=project_path)
-                
-                # Save updated content status if function provided
-                if save_function and callable(save_function):
-                    save_function()
-                
-                # Show summary
-                success_count = sum(1 for r in result.values() if r.get('status') == 'success')
-                st.success(f"Completed B-roll generation: {success_count} successful out of {len(broll_segments)} segments.")
-                
-                # Mark step as complete if all segments succeeded and mark_step_complete is available
-                if success_count == len(broll_segments):
-                    if 'mark_step_complete' in globals():
-                        mark_step_complete('content_production')
-                    st.balloons()  # Add some fun! 
+                # Show processing indicator
+                with st.spinner("Submitting B-Roll jobs to ComfyUI..."):
+                    # Generate B-roll sequentially
+                    st.subheader("B-Roll Generation in Progress")
+                    result = generate_broll_sequentially(broll_segments, project_path=project_path)
+                    
+                    # Save updated content status if function provided
+                    if save_function and callable(save_function):
+                        save_function()
+                    
+                    # Show summary
+                    success_count = sum(1 for r in result.values() if r.get('status') == 'submitted')
+                    st.success(f"Completed B-roll submission: {success_count} jobs out of {len(broll_segments)} segments.")
+                    
+                    # Set flag for automatic page refresh
+                    st.session_state.should_rerun_after_broll_gen = True
+                    
+                    # Create a refresh button in case auto-refresh doesn't work
+                    st.info("Page will refresh automatically to show updated IDs... If it doesn't, click the button below.")
+                    if st.button("🔄 Refresh Now", type="primary", key=f"manual_refresh_{unique_key}", use_container_width=True):
+                        st.rerun()
+                    
+                    # Force a rerun after 1 second
+                    time.sleep(1)
+                    st.rerun() 

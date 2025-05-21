@@ -1695,12 +1695,27 @@ with col2:
             "segment_2": "8f34773a-a113-494b-be8a-e5ecd241a8a4"
         }
         
+        # Setup reset flags in session state if they don't exist
+        for i, segment in enumerate(broll_segments):
+            segment_id = f"segment_{i}"
+            reset_key = f"reset_broll_id_{segment_id}"
+            if reset_key not in st.session_state:
+                st.session_state[reset_key] = False
+        
         # Use current timestamp for truly unique keys
         timestamp = int(time.time())
         
         for i, segment in enumerate(broll_segments):
             segment_id = f"segment_{i}"
             unique_key = f"broll_id_new_{segment_id}_{timestamp}_{i}"
+            reset_key = f"reset_broll_id_{segment_id}"
+            
+            # Check if we should reset this field
+            if st.session_state[reset_key]:
+                # Update the session state with default value
+                st.session_state.broll_fetch_ids[segment_id] = default_broll_ids.get(segment_id, "")
+                # Reset the flag
+                st.session_state[reset_key] = False
             
             # Get the current ID value from session state (if exists) or use default
             current_id = st.session_state.broll_fetch_ids.get(segment_id, default_broll_ids.get(segment_id, ""))
@@ -1714,8 +1729,8 @@ with col2:
                 )
             with col2:
                 if st.button(f"Reset", key=f"reset_btn_{segment_id}_{timestamp}"):
-                    # Reset to default ID
-                    st.session_state[unique_key] = default_broll_ids.get(segment_id, "")
+                    # Set the reset flag and trigger a rerun
+                    st.session_state[reset_key] = True
                     st.rerun()
                     
             # Store in session state
