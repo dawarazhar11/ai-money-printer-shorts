@@ -8,6 +8,11 @@ from pathlib import Path
 import base64
 import threading
 from datetime import datetime
+import random
+
+# Import custom helper module for ComfyUI integration
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../app"))
+import comfyui_helpers
 
 # Fix import paths for components and utilities
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -259,19 +264,29 @@ def load_broll_prompts():
 def load_content_status():
     status_file = project_path / "content_status.json"
     if status_file.exists():
-        with open(status_file, "r") as f:
-            content_status = json.load(f)
-            st.session_state.content_status = content_status
-            
-            # Also update broll_fetch_ids from content_status
-            if "broll" in content_status:
-                for segment_id, segment_data in content_status["broll"].items():
-                    if "prompt_id" in segment_data:
-                        if "broll_fetch_ids" not in st.session_state:
-                            st.session_state.broll_fetch_ids = {}
-                        st.session_state.broll_fetch_ids[segment_id] = segment_data["prompt_id"]
-            
-            return True
+        try:
+            with open(status_file, "r") as f:
+                content_status = json.load(f)
+                st.session_state.content_status = content_status
+                
+                # Also update broll_fetch_ids from content_status
+                if "broll" in content_status:
+                    for segment_id, segment_data in content_status["broll"].items():
+                        if "prompt_id" in segment_data:
+                            if "broll_fetch_ids" not in st.session_state:
+                                st.session_state.broll_fetch_ids = {}
+                            st.session_state.broll_fetch_ids[segment_id] = segment_data["prompt_id"]
+                
+                return True
+        except json.JSONDecodeError:
+            st.warning("Content status file exists but contains invalid JSON. Creating a new one.")
+            # Initialize with default values
+            st.session_state.content_status = {"aroll": {}, "broll": {}}
+            save_content_status()
+            return False
+        except Exception as e:
+            st.error(f"Error loading content status: {str(e)}")
+            return False
     return False
 
 # Function to save content status
@@ -946,6 +961,254 @@ def generate_aroll_content(segments, aroll_fetch_ids):
     # Mark generation as complete
     st.session_state.parallel_tasks["running"] = False
 
+# Function for B-Roll content generation only
+def generate_broll_content(segments, broll_prompts, broll_fetch_ids, workflow_selection):
+    """Generate B-Roll content only"""
+    # Ensure parallel_tasks is properly initialized first
+    if "parallel_tasks" not in st.session_state:
+        st.session_state.parallel_tasks = {
+            "running": True,
+            "completed": 0,
+            "total": 0
+        }
+    
+    # Reset progress tracking
+    st.session_state.parallel_tasks["completed"] = 0
+    
+    # Get all B-Roll segments that need to be processed
+    broll_segments = [s for s in segments if isinstance(s, dict) and s.get("type") == "B-Roll"]
+    
+    # Debug log for segments
+    print(f"B-Roll Generation: Found {len(broll_segments)} B-Roll segments")
+    
+    # Set total tasks
+    total_tasks = len(broll_segments)
+    
+    # Ensure we have at least 1 task to avoid division by zero in progress calculations
+    st.session_state.parallel_tasks["total"] = max(1, total_tasks)
+    
+    if total_tasks == 0:
+        print("Warning: No B-Roll segments found for processing")
+        # Mark as complete immediately if no segments to process
+        st.session_state.parallel_tasks["completed"] = 1
+        st.session_state.parallel_tasks["running"] = False
+        return
+    
+    # Store trackers to keep references (prevent garbage collection)
+    if "active_trackers" not in st.session_state:
+        st.session_state.active_trackers = []
+        
+    # Get workflow template based on selection
+    image_workflow_type = workflow_selection["image"]
+    image_template_file = JSON_TEMPLATES["image"][image_workflow_type]
+    
+    # Process B-Roll segments
+    for i, segment in enumerate(broll_segments):
+        segment_id = f"segment_{i}"
+        
+        # Check if we have prompts for this segment
+        if "prompts" in broll_prompts and segment_id in broll_prompts["prompts"]:
+            prompt_data = broll_prompts["prompts"][segment_id]
+            
+            # Check if we're using an existing B-Roll via ID
+            if segment_id in broll_fetch_ids and broll_fetch_ids[segment_id]:
+                # Set status to "fetching" to show progress
+                st.session_state.content_status["broll"][segment_id] = {
+                    "status": "fetching",
+                    "prompt_id": broll_fetch_ids[segment_id],
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                
+                # Select the correct API endpoint based on content type
+                api_url = COMFYUI_VIDEO_API_URL if prompt_data.get("is_video", False) else COMFYUI_IMAGE_API_URL
+                
+                # Setup progress tracking for this fetch
+                prompt_id = broll_fetch_ids[segment_id]
+                tracker = start_comfyui_tracking(prompt_id, api_url)
+                st.session_state.active_trackers.append(tracker)
+                
+                # Fetch existing content by ID
+                result = fetch_comfyui_content_by_id(api_url, broll_fetch_ids[segment_id])
+                
+                # Handle different result statuses
+                if result["status"] == "success":
+                    # Determine file extension based on content type
+                    content_type = result.get("type", "image")
+                    file_ext = "mp4" if content_type == "video" else "png"
+                    
+                    # If content type doesn't match what we expected, log a warning
+                    if (content_type == "video" and not prompt_data.get("is_video", False)) or \
+                       (content_type == "image" and prompt_data.get("is_video", True)):
+                        mismatched_type = True
+                    else:
+                        mismatched_type = False
+                    
+                    # Save the fetched content
+                    file_path = save_media_content(
+                        result["content"], 
+                        "broll",
+                        segment_id,
+                        file_ext
+                    )
+                    
+                    st.session_state.content_status["broll"][segment_id] = {
+                        "status": "complete",
+                        "file_path": file_path,
+                        "prompt_id": broll_fetch_ids[segment_id],
+                        "content_type": content_type,
+                        "expected_type": "video" if prompt_data.get("is_video", False) else "image",
+                        "type_mismatch": mismatched_type,
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    }
+                elif result["status"] == "processing":
+                    # Content is still being generated
+                    st.session_state.content_status["broll"][segment_id] = {
+                        "status": "waiting",
+                        "message": "ComfyUI job still processing. Try again later.",
+                        "prompt_id": broll_fetch_ids[segment_id],
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    }
+                else:
+                    # Error fetching content
+                    st.session_state.content_status["broll"][segment_id] = {
+                        "status": "error",
+                        "message": result.get("message", "Unknown error fetching content"),
+                        "prompt_id": broll_fetch_ids[segment_id],
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    }
+            else:
+                # Generate new B-Roll content
+                # Prepare the workflow with the correct template based on content type
+                template_file = JSON_TEMPLATES["video"] if prompt_data.get("is_video", False) else image_template_file
+                workflow = prepare_comfyui_workflow(
+                    template_file,
+                    prompt_data["prompt"],
+                    prompt_data.get("negative_prompt", "ugly, blurry, low quality"),
+                    resolution="1080x1920"
+                )
+                
+                if workflow:
+                    # Set status to processing
+                    st.session_state.content_status["broll"][segment_id] = {
+                        "status": "processing",
+                        "message": "Submitting job to ComfyUI...",
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    }
+                    
+                    # Select API based on content type
+                    api_url = COMFYUI_VIDEO_API_URL if prompt_data.get("is_video", False) else COMFYUI_IMAGE_API_URL
+                    
+                    # Submit to ComfyUI
+                    prompt_id = submit_comfyui_job(api_url, workflow)
+                    
+                    if prompt_id:
+                        # Save the prompt ID for future use
+                        broll_fetch_ids[segment_id] = prompt_id
+                        
+                        # Also update the session state version
+                        if "broll_fetch_ids" in st.session_state:
+                            st.session_state.broll_fetch_ids[segment_id] = prompt_id
+                        
+                        # Setup progress tracking
+                        tracker = start_comfyui_tracking(prompt_id, api_url)
+                        st.session_state.active_trackers.append(tracker)
+                        
+                        # Update status
+                        st.session_state.content_status["broll"][segment_id] = {
+                            "status": "processing",
+                            "message": "Job submitted, processing in ComfyUI...",
+                            "prompt_id": prompt_id,
+                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        }
+                    else:
+                        # Failed to submit job
+                        st.session_state.content_status["broll"][segment_id] = {
+                            "status": "error",
+                            "message": "Failed to submit job to ComfyUI",
+                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        }
+                else:
+                    # Failed to prepare workflow
+                    st.session_state.content_status["broll"][segment_id] = {
+                        "status": "error",
+                        "message": "Failed to prepare workflow",
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    }
+        else:
+            st.session_state.content_status["broll"][segment_id] = {
+                "status": "error",
+                "message": "No prompt data found for this segment",
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+        
+        # Update progress
+        st.session_state.parallel_tasks["completed"] += 1
+    
+    # Save content status to file
+    save_content_status()
+    
+    # Update session state with any changes to broll_fetch_ids
+    if "broll_fetch_ids" in st.session_state:
+        for segment_id, prompt_id in broll_fetch_ids.items():
+            st.session_state.broll_fetch_ids[segment_id] = prompt_id
+    
+    # Mark generation as complete
+    st.session_state.parallel_tasks["running"] = False
+
+# Function for parallel content generation
+def generate_content_parallel(segments, broll_prompts, manual_upload, aroll_fetch_ids, broll_fetch_ids, workflow_selection):
+    """Generate content in parallel"""
+    # Ensure parallel_tasks is properly initialized first
+    if "parallel_tasks" not in st.session_state:
+        st.session_state.parallel_tasks = {
+            "running": True,
+            "completed": 0,
+            "total": 0
+        }
+    
+    # Reset progress tracking
+    st.session_state.parallel_tasks["completed"] = 0
+    
+    # Separate A-Roll and B-Roll segments
+    aroll_segments = [s for s in segments if isinstance(s, dict) and s.get("type") == "A-Roll"]
+    broll_segments = [s for s in segments if isinstance(s, dict) and s.get("type") == "B-Roll"]
+    
+    # Debug log for segments
+    print(f"Parallel Generation: Found {len(aroll_segments)} A-Roll segments and {len(broll_segments)} B-Roll segments")
+    
+    # Set total tasks
+    total_tasks = len(aroll_segments) + len(broll_segments)
+    
+    # Ensure we have at least 1 task to avoid division by zero in progress calculations
+    st.session_state.parallel_tasks["total"] = max(1, total_tasks)
+    
+    if total_tasks == 0:
+        print("Warning: No segments found for content generation")
+        # Mark as complete immediately if no segments to process
+        st.session_state.parallel_tasks["completed"] = 1
+        st.session_state.parallel_tasks["running"] = False
+        return
+    
+    # Store trackers to keep references (prevent garbage collection)
+    if "active_trackers" not in st.session_state:
+        st.session_state.active_trackers = []
+    
+    # First generate A-Roll content
+    if len(aroll_segments) > 0:
+        print("Generating A-Roll content within parallel function...")
+        generate_aroll_content(segments, aroll_fetch_ids)
+    
+    # Then generate B-Roll content
+    if len(broll_segments) > 0 and not manual_upload:
+        print("Generating B-Roll content within parallel function...")
+        generate_broll_content(segments, broll_prompts, broll_fetch_ids, workflow_selection)
+    
+    # Save content status to file
+    save_content_status()
+    
+    # Mark generation as complete
+    st.session_state.parallel_tasks["running"] = False
+
 # Page header
 render_step_header(5, "Content Production", 8)
 
@@ -1567,34 +1830,8 @@ else:
                         st.error(f"Encountered {len(errors)} errors during submission.")
                     st.rerun()
         else:
-            if st.button("🎨 Generate B-Roll Content", type="primary", key="generate_broll", use_container_width=True):
-                # Capture all required data before starting the thread
-                temp_segments = st.session_state.segments.copy() if hasattr(st.session_state, 'segments') and st.session_state.segments else []
-                temp_broll_prompts = st.session_state.broll_prompts.copy() if hasattr(st.session_state, 'broll_prompts') and st.session_state.broll_prompts else {}
-                temp_broll_fetch_ids = st.session_state.broll_fetch_ids.copy() if hasattr(st.session_state, 'broll_fetch_ids') and st.session_state.broll_fetch_ids else {}
-                temp_workflow_selection = st.session_state.workflow_selection.copy() if hasattr(st.session_state, 'workflow_selection') and st.session_state.workflow_selection else {"image": "default"}
-                
-                # Print debug info
-                print(f"Debug - Starting B-Roll content generation")
-                
-                # Check if segments is empty
-                if not temp_segments:
-                    st.error("No segments found. Please ensure you have completed the Script Segmentation step.")
-                    st.stop()
-                
-                # Mark as running before starting the thread
-                st.session_state.parallel_tasks["running"] = True
-                
-                # Start the B-Roll content generation in a separate thread
-                thread = threading.Thread(
-                    target=generate_broll_content, 
-                    args=(temp_segments, temp_broll_prompts, temp_broll_fetch_ids, temp_workflow_selection)
-                )
-                thread.daemon = True
-                thread.start()
-                
-                # Refresh the page to show progress
-                st.rerun()
+            # Replace the original button with our new sequential implementation
+            comfyui_helpers.render_broll_generation_section(unique_key="col2", project_path=project_path, save_function=save_content_status)
     
     # Still provide an option for parallel generation
     st.markdown("### Generate Everything at Once")
@@ -1945,3 +2182,470 @@ with st.expander("Debug Information", expanded=False):
         _ = load_broll_prompts()
         _ = load_content_status()
         st.rerun() 
+
+# Add this function to allow clearing cached IDs
+def clear_fetch_ids():
+    """Clear cached IDs for A-Roll and B-Roll content"""
+    if "aroll_fetch_ids" in st.session_state:
+        st.session_state.aroll_fetch_ids = {}
+    if "broll_fetch_ids" in st.session_state:
+        st.session_state.broll_fetch_ids = {}
+    st.success("✅ Content cache cleared successfully. New content will be generated on the next run.")
+    
+    # Also clear any active tracking
+    if "active_trackers" in st.session_state:
+        st.session_state.active_trackers = []
+
+# Add a new UI section for cache management
+with st.expander("🧹 Cache Management"):
+    st.markdown("""
+    ### Clear Content Cache
+    
+    If you're experiencing issues with content generation, or if you want to force regeneration of all content,
+    you can clear the cached content IDs here.
+    
+    **Note:** This won't delete any previously generated files, but will ensure new content is generated
+    the next time you run the generation process.
+    """)
+    
+    if st.button("🗑️ Clear Content Cache", key="clear_cache"):
+        clear_fetch_ids()
+
+# Load workflow files
+def load_workflow(workflow_type="video"):
+    """Load workflow from JSON file"""
+    try:
+        if workflow_type == "video":
+            workflow_file = "wan.json"
+        else:
+            workflow_file = "image_homepc.json"
+            
+        with open(workflow_file, "r") as f:
+            workflow = json.load(f)
+            print(f"✅ Loaded {workflow_type} workflow from {workflow_file} with {len(workflow)} nodes")
+            return workflow
+    except Exception as e:
+        st.error(f"Failed to load workflow file: {str(e)}")
+        return None
+
+# Function to modify workflow with custom parameters
+def modify_workflow(workflow, params):
+    """Modify the loaded workflow JSON with custom parameters"""
+    try:
+        if workflow is None:
+            return None
+            
+        # Create a deep copy to avoid modifying the original
+        modified_workflow = workflow.copy()
+        
+        # Find text input nodes (for prompt) - search for nodes with CLIPTextEncode class_type
+        text_nodes = [k for k in modified_workflow.keys() 
+                     if "class_type" in modified_workflow[k] and 
+                     modified_workflow[k]["class_type"] == "CLIPTextEncode"]
+        
+        # Find negative text nodes - typically the second CLIPTextEncode node
+        if len(text_nodes) >= 2:
+            # First node for positive prompt, second for negative
+            pos_node_id = text_nodes[0]
+            neg_node_id = text_nodes[1]
+            
+            # Set prompts
+            if "inputs" in modified_workflow[pos_node_id]:
+                modified_workflow[pos_node_id]["inputs"]["text"] = params.get("prompt", "")
+                print(f"Set prompt in node {pos_node_id}")
+                
+            if "inputs" in modified_workflow[neg_node_id]:
+                modified_workflow[neg_node_id]["inputs"]["text"] = params.get("negative_prompt", "")
+                print(f"Set negative prompt in node {neg_node_id}")
+        
+        # Find empty latent image nodes for dimensions
+        latent_nodes = [k for k in modified_workflow.keys() 
+                       if "class_type" in modified_workflow[k] and 
+                       (modified_workflow[k]["class_type"] == "EmptyLatentImage" or
+                        modified_workflow[k]["class_type"] == "EmptyLatentVideo")]
+        
+        if latent_nodes:
+            latent_node_id = latent_nodes[0]
+            if "inputs" in modified_workflow[latent_node_id]:
+                if "width" in modified_workflow[latent_node_id]["inputs"]:
+                    modified_workflow[latent_node_id]["inputs"]["width"] = params.get("width", 1080)
+                if "height" in modified_workflow[latent_node_id]["inputs"]:
+                    modified_workflow[latent_node_id]["inputs"]["height"] = params.get("height", 1920)
+                print(f"Set dimensions in node {latent_node_id}")
+        
+        # Find sampler nodes for seed
+        sampler_nodes = [k for k in modified_workflow.keys() 
+                        if "class_type" in modified_workflow[k] and 
+                        ("KSampler" in modified_workflow[k]["class_type"] or 
+                         "SamplerAdvanced" in modified_workflow[k]["class_type"])]
+        
+        if sampler_nodes:
+            sampler_node_id = sampler_nodes[0]
+            if "inputs" in modified_workflow[sampler_node_id] and "seed" in modified_workflow[sampler_node_id]["inputs"]:
+                modified_workflow[sampler_node_id]["inputs"]["seed"] = params.get("seed", random.randint(1, 999999999))
+                print(f"Set seed in node {sampler_node_id}")
+        
+        return modified_workflow
+        
+    except Exception as e:
+        print(f"Error modifying workflow: {str(e)}")
+        return None
+
+# Function to fetch content by prompt ID
+def fetch_content_by_id(prompt_id, api_url):
+    """Fetch content from ComfyUI using prompt ID"""
+    try:
+        # First check history
+        history_url = f"{api_url}/history/{prompt_id}"
+        history_response = requests.get(history_url, timeout=10)
+        
+        if history_response.status_code != 200:
+            return {
+                "status": "error",
+                "message": f"Error fetching history: {history_response.status_code}"
+            }
+        
+        job_data = history_response.json()
+        
+        # Check if job exists
+        if prompt_id not in job_data:
+            return {
+                "status": "error",
+                "message": "Prompt ID not found in history"
+            }
+        
+        # Get job info
+        job_info = job_data[prompt_id]
+        
+        # Check if job completed
+        outputs = job_info.get("outputs", {})
+        if not outputs:
+            return {
+                "status": "processing",
+                "message": "Job still processing"
+            }
+        
+        # Find output file
+        for node_id, node_data in outputs.items():
+            # Check for images
+            if "images" in node_data:
+                for image_data in node_data["images"]:
+                    filename = image_data.get("filename", "")
+                    
+                    if filename:
+                        # Download file
+                        file_url = f"{api_url}/view?filename={filename}"
+                        content_response = requests.get(file_url, timeout=30)
+                        
+                        if content_response.status_code == 200:
+                            return {
+                                "status": "success",
+                                "content": content_response.content,
+                                "filename": filename,
+                                "type": "image"
+                            }
+            
+            # Check for videos
+            for media_type in ["videos", "gifs"]:
+                if media_type in node_data:
+                    for media_item in node_data[media_type]:
+                        filename = media_item.get("filename", "")
+                        
+                        if filename:
+                            # Download file
+                            file_url = f"{api_url}/view?filename={filename}"
+                            content_response = requests.get(file_url, timeout=60)
+                            
+                            if content_response.status_code == 200:
+                                return {
+                                    "status": "success",
+                                    "content": content_response.content,
+                                    "filename": filename,
+                                    "type": "video"
+                                }
+        
+        # If we get here, try looking for AnimateDiff pattern files
+        possible_files = [f"animation_{i:05d}.mp4" for i in range(1, 10)]
+        for filename in possible_files:
+            file_url = f"{api_url}/view?filename={filename}"
+            try:
+                response = requests.head(file_url, timeout=5)
+                if response.status_code == 200:
+                    content_response = requests.get(file_url, timeout=60)
+                    if content_response.status_code == 200:
+                        return {
+                            "status": "success",
+                            "content": content_response.content,
+                            "filename": filename,
+                            "type": "video"
+                        }
+            except Exception as e:
+                print(f"Error checking alternative file {filename}: {str(e)}")
+        
+        return {
+            "status": "error",
+            "message": "No output file found"
+        }
+    
+    except Exception as e:
+        st.error(f"Error fetching content: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Error fetching content: {str(e)}"
+        }
+
+# Function to periodically fetch content until it's available
+def periodic_content_fetch(prompt_id, api_url, max_attempts=30, interval=3):
+    """Periodically fetch content by prompt ID until it's available or max attempts reached"""
+    status_placeholder = st.empty()
+    status_placeholder.info(f"⏳ Waiting for content generation to complete (ID: {prompt_id})...")
+    
+    for attempt in range(1, max_attempts + 1):
+        status_placeholder.text(f"Fetch attempt {attempt}/{max_attempts}...")
+        
+        # Try to fetch content
+        result = fetch_content_by_id(prompt_id, api_url)
+        
+        if result["status"] == "success":
+            status_placeholder.success("✅ Content successfully generated!")
+            return result
+        elif result["status"] == "error" and "not found" in result.get("message", "").lower():
+            # If prompt ID is not found, stop trying
+            status_placeholder.error("❌ Prompt ID not found")
+            return result
+        
+        # Wait before trying again
+        time.sleep(interval)
+    
+    # If we reached max attempts
+    status_placeholder.error("❌ Timed out waiting for content")
+    return {
+        "status": "error",
+        "message": f"Timed out after {max_attempts} attempts"
+    }
+
+# Function to save media content to file
+def save_media_content(content, segment_type, segment_id, file_extension):
+    """Save media content to a file"""
+    # Create directories if they don't exist
+    media_dir = project_path / "media" / segment_type
+    media_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{segment_type}_{segment_id}_{timestamp}.{file_extension}"
+    
+    # Save file
+    file_path = media_dir / filename
+    with open(file_path, "wb") as f:
+        f.write(content)
+    
+    # Return relative path from project directory
+    return str(file_path)
+
+# Function to generate B-Roll sequentially
+def generate_broll_sequentially(segments_data, api_url=None):
+    """Generate B-Roll content sequentially with proper tracking"""
+    if api_url is None:
+        api_url = "http://100.115.243.42:8000"
+    
+    # Track progress
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    # Store results
+    results = {}
+    total_segments = len(segments_data)
+    
+    # Process each segment
+    for idx, (segment_id, segment_data) in enumerate(segments_data.items()):
+        # Update progress
+        progress_value = idx / total_segments
+        progress_bar.progress(progress_value)
+        status_text.text(f"Processing segment {idx+1}/{total_segments}: {segment_id}")
+        
+        # Create segment container for output
+        segment_container = st.container()
+        
+        with segment_container:
+            st.subheader(f"Segment {segment_id}")
+            
+            # Check if is_video flag exists, default to True for B-Roll
+            is_video = segment_data.get("is_video", True)
+            content_type = "video" if is_video else "image"
+            
+            # Create client ID for tracking
+            client_id = f"streamlit_broll_{segment_id}_{int(time.time())}"
+            
+            # Load workflow
+            workflow = load_workflow("video" if is_video else "image")
+            if workflow is None:
+                st.error(f"Failed to load workflow for {segment_id}")
+                results[segment_id] = {"status": "error", "message": "Failed to load workflow"}
+                continue
+                
+            # Get parameters
+            params = {
+                "prompt": segment_data.get("prompt", ""),
+                "negative_prompt": segment_data.get("negative_prompt", "ugly, blurry, low quality, deformed"),
+                "width": 1080,
+                "height": 1920,
+                "seed": random.randint(1, 999999999)
+            }
+            
+            # Modify workflow
+            modified_workflow = modify_workflow(workflow, params)
+            if modified_workflow is None:
+                st.error(f"Failed to modify workflow for {segment_id}")
+                results[segment_id] = {"status": "error", "message": "Failed to modify workflow"}
+                continue
+            
+            # Submit job
+            st.info(f"Submitting {content_type} generation job")
+            result = comfyui_api.queue_prompt(modified_workflow, client_id, api_url)
+            
+            # Check result
+            if result["status_code"] != 200 or not result.get("prompt_id"):
+                st.error(f"Failed to submit job: {result.get('error', 'Unknown error')}")
+                results[segment_id] = {"status": "error", "message": f"Job submission failed: {result.get('error', 'Unknown error')}"}
+                continue
+                
+            prompt_id = result["prompt_id"]
+            st.info(f"Job submitted with ID: {prompt_id}")
+            
+            # Store the prompt ID
+            if "broll_fetch_ids" not in st.session_state:
+                st.session_state.broll_fetch_ids = {}
+            st.session_state.broll_fetch_ids[segment_id] = prompt_id
+            
+            # Fetch content
+            st.info("Waiting for content generation to complete...")
+            fetch_result = periodic_content_fetch(prompt_id, api_url)
+            
+            if fetch_result["status"] == "success":
+                # Save content
+                content = fetch_result["content"]
+                file_ext = "mp4" if is_video else "png"
+                file_path = save_media_content(content, "broll", segment_id, file_ext)
+                
+                # Update status
+                st.session_state.content_status["broll"][segment_id] = {
+                    "status": "complete",
+                    "file_path": file_path,
+                    "prompt_id": prompt_id,
+                    "content_type": content_type,
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                
+                # Display result
+                st.success(f"Successfully generated {content_type} for segment {segment_id}")
+                if is_video:
+                    st.video(file_path)
+                else:
+                    st.image(file_path)
+                    
+                results[segment_id] = {
+                    "status": "success", 
+                    "file_path": file_path,
+                    "prompt_id": prompt_id
+                }
+            else:
+                # Try direct download for AnimateDiff patterns
+                if is_video:
+                    downloaded = False
+                    possible_files = [f"animation_{i:05d}.mp4" for i in range(1, 10)]
+                    
+                    for filename in possible_files:
+                        file_url = f"{api_url}/view?filename={filename}"
+                        try:
+                            response = requests.head(file_url, timeout=5)
+                            if response.status_code == 200:
+                                content_response = requests.get(file_url, timeout=60)
+                                if content_response.status_code == 200:
+                                    # Save file
+                                    file_path = save_media_content(content_response.content, "broll", segment_id, "mp4")
+                                    
+                                    # Update status
+                                    st.session_state.content_status["broll"][segment_id] = {
+                                        "status": "complete",
+                                        "file_path": file_path,
+                                        "prompt_id": prompt_id,
+                                        "content_type": "video",
+                                        "filename": filename,
+                                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                    }
+                                    
+                                    st.success(f"Found and downloaded video from pattern {filename}")
+                                    st.video(file_path)
+                                    
+                                    results[segment_id] = {
+                                        "status": "success", 
+                                        "file_path": file_path,
+                                        "prompt_id": prompt_id
+                                    }
+                                    downloaded = True
+                                    break
+                        except Exception as e:
+                            st.warning(f"Error checking file {filename}: {str(e)}")
+                
+                    if not downloaded:
+                        st.error(f"Failed to generate content: {fetch_result.get('message', 'Unknown error')}")
+                        results[segment_id] = {"status": "error", "message": fetch_result.get('message', 'Content generation failed')}
+                else:
+                    st.error(f"Failed to generate content: {fetch_result.get('message', 'Unknown error')}")
+                    results[segment_id] = {"status": "error", "message": fetch_result.get('message', 'Content generation failed')}
+            
+            # Add a separator between segments
+            st.divider()
+            
+            # Wait a bit before next job to give ComfyUI time to recover
+            if idx < total_segments - 1:
+                time.sleep(3)
+    
+    # Update final progress
+    progress_bar.progress(1.0)
+    status_text.text(f"Completed processing {total_segments} segments!")
+    
+    return results
+
+# Define the B-Roll generation UI function
+def render_broll_generation_section(unique_key="main"):
+    """Render the B-Roll generation section with a single 'Generate All B-Roll' button
+    
+    Args:
+        unique_key: A unique identifier to append to widget keys to avoid duplicates
+    """
+    # Create a single column for B-roll generation (removing the two-column approach)
+    broll_gen_col = st.container()
+    
+    with broll_gen_col:
+        if st.button("🎨 Generate All B-Roll", type="primary", key=f"generate_broll_{unique_key}", use_container_width=True):
+            # Capture all required data before starting the thread
+            temp_segments = st.session_state.segments.copy() if hasattr(st.session_state, 'segments') and st.session_state.segments else []
+            temp_broll_prompts = st.session_state.broll_prompts.copy() if hasattr(st.session_state, 'broll_prompts') else {'prompts': {}}
+            
+            # Check if we have B-roll segments to process
+            broll_segments = {}
+            for i, seg in enumerate(temp_segments):
+                segment_id = f"segment_{i}"
+                if segment_id in temp_broll_prompts.get('prompts', {}):
+                    broll_segments[segment_id] = temp_broll_prompts['prompts'][segment_id]
+            
+            if not broll_segments:
+                st.error("No B-roll segments to process. Please create segments first.")
+            else:
+                # Generate B-roll sequentially
+                st.subheader("B-Roll Generation in Progress")
+                result = generate_broll_sequentially(broll_segments)
+                
+                # Save updated content status
+                save_content_status()
+                
+                # Show summary
+                success_count = sum(1 for r in result.values() if r.get('status') == 'success')
+                st.success(f"Completed B-roll generation: {success_count} successful out of {len(broll_segments)} segments.")
+                
+                # Mark step as complete if all segments succeeded
+                if success_count == len(broll_segments):
+                    mark_step_complete('content_production')
+                    st.balloons()  # Add some fun!
