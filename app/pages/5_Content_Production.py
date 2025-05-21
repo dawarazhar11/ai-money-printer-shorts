@@ -151,13 +151,6 @@ if "broll_fetch_ids" not in st.session_state:
         "segment_1": "15027251-6c76-4aee-b5d1-adddfa591257",  # SEG2
         "segment_2": "8f34773a-a113-494b-be8a-e5ecd241a8a4"   # SEG3
     }
-else:
-    # Force update existing IDs to match content_status.json
-    st.session_state.broll_fetch_ids = {
-        "segment_0": "ca26f439-3be6-4897-9e8a-d56448f4bb9a",  # SEG1
-        "segment_1": "15027251-6c76-4aee-b5d1-adddfa591257",  # SEG2
-        "segment_2": "8f34773a-a113-494b-be8a-e5ecd241a8a4"   # SEG3
-    }
 if "workflow_selection" not in st.session_state:
     st.session_state.workflow_selection = {
         "image": "default"
@@ -797,6 +790,12 @@ def batch_process_broll_prompts():
     
     # Save content status to file
     save_content_status()
+    
+    # Force refresh of UI by triggering a rerun after a short delay
+    if prompt_ids:
+        st.success(f"Successfully generated {len(prompt_ids)} new jobs. UI will update with new IDs...")
+        time.sleep(0.5)
+        st.rerun()
     
     return prompt_ids, errors
 
@@ -1690,9 +1689,9 @@ with col2:
         
         # Completely new implementation using unique IDs
         broll_ids = {
-            "segment_0": "ca26f439-3be6-4897-9e8a-d56448f4bb9a",
-            "segment_1": "15027251-6c76-4aee-b5d1-adddfa591257", 
-            "segment_2": "8f34773a-a113-494b-be8a-e5ecd241a8a4"
+            "segment_0": st.session_state.broll_fetch_ids.get("segment_0", "ca26f439-3be6-4897-9e8a-d56448f4bb9a"),
+            "segment_1": st.session_state.broll_fetch_ids.get("segment_1", "15027251-6c76-4aee-b5d1-adddfa591257"), 
+            "segment_2": st.session_state.broll_fetch_ids.get("segment_2", "8f34773a-a113-494b-be8a-e5ecd241a8a4")
         }
         
         # Use current timestamp for truly unique keys
