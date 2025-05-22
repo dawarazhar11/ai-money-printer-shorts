@@ -516,8 +516,15 @@ def apply_typography_effects(frame_img, text, style, word_info=None, current_tim
                 # Last resort: return an empty black frame
                 return np.zeros((720, 1280, 3), dtype=np.uint8)
     
+    # Ensure frame_img is RGBA for proper compositing
+    if frame_img.mode != 'RGBA':
+        frame_img = frame_img.convert('RGBA')
+    
+    # Skip drawing if no text
+    if not text.strip():
+        return frame_img.convert('RGB')
+    
     # Create base image with text
-    width, height = frame_img.size
     overlay = Image.new('RGBA', frame_img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
     
@@ -617,28 +624,45 @@ def apply_typography_effects(frame_img, text, style, word_info=None, current_tim
     padding = style["highlight_padding"]
     
     if style["position"] == "bottom":
-        text_x = (width - text_width) // 2 if style["align"] == "center" else padding
-        text_y = height - text_height - padding * 2
+        text_x = (frame_img.width - text_width) // 2 if style["align"] == "center" else padding
+        text_y = frame_img.height - text_height - padding * 2
     elif style["position"] == "top":
-        text_x = (width - text_width) // 2 if style["align"] == "center" else padding
+        text_x = (frame_img.width - text_width) // 2 if style["align"] == "center" else padding
         text_y = padding
     elif style["position"] == "center":
-        text_x = (width - text_width) // 2
-        text_y = (height - text_height) // 2
+        text_x = (frame_img.width - text_width) // 2
+        text_y = (frame_img.height - text_height) // 2
     
     # Apply offsets from effects
     text_x += x_offset
     text_y += y_offset
     
+    # Make sure text_color is RGBA
+    if len(text_color) == 3:
+        text_color = text_color + (255,)
+        
     # Apply opacity to the text color
-    text_color_with_alpha = text_color + (int(255 * opacity),) if len(text_color) == 3 else \
-                           (text_color[0], text_color[1], text_color[2], int(text_color[3] * opacity))
+    text_color_with_alpha = (
+        text_color[0], 
+        text_color[1], 
+        text_color[2], 
+        int(text_color[3] * opacity) if len(text_color) > 3 else int(255 * opacity)
+    )
     
     # Draw highlight/background if specified
     if style["highlight_color"]:
         highlight_color = style["highlight_color"]
-        highlight_alpha = int(highlight_color[3] * opacity) if len(highlight_color) == 4 else int(255 * opacity)
-        highlight_color_with_alpha = highlight_color[:3] + (highlight_alpha,)
+        # Make sure highlight_color is RGBA
+        if len(highlight_color) == 3:
+            highlight_color = highlight_color + (180,)
+            
+        highlight_alpha = int(highlight_color[3] * opacity) if len(highlight_color) > 3 else int(255 * opacity)
+        highlight_color_with_alpha = (
+            highlight_color[0], 
+            highlight_color[1], 
+            highlight_color[2], 
+            highlight_alpha
+        )
         
         # Draw rounded rectangle background
         draw.rounded_rectangle(
@@ -672,7 +696,7 @@ def apply_typography_effects(frame_img, text, style, word_info=None, current_tim
     )
     
     # Composite the text overlay with the original frame
-    result = Image.alpha_composite(frame_img.convert('RGBA'), overlay)
+    result = Image.alpha_composite(frame_img, overlay)
     
     # Apply typewriter effect if specified
     if "typewriter" in effects and word_info and "start" in word_info and "end" in word_info:
@@ -722,7 +746,7 @@ def apply_typography_effects(frame_img, text, style, word_info=None, current_tim
             )
             
             # Replace the full text overlay with the partial one
-            result = Image.alpha_composite(frame_img.convert('RGBA'), typewriter_overlay)
+            result = Image.alpha_composite(frame_img, typewriter_overlay)
     
     # Convert back to RGB for MoviePy
     return result.convert('RGB')
@@ -774,7 +798,6 @@ def make_frame_with_text(frame, text, style, word_info=None, current_time=0, is_
             return frame(current_time)
         return np.zeros((720, 1280, 3), dtype=np.uint8)  # Black frame as last resort
 
-# Rename the original function for backward compatibility
 def make_simple_frame_with_text(frame_img, text, style):
     """Original function for simple text overlay without effects"""
     from PIL import ImageDraw, ImageFont, Image
@@ -790,24 +813,43 @@ def make_simple_frame_with_text(frame_img, text, style):
             frame_img = Image.fromarray(np.array(frame_img))
         except:
             return np.zeros((720, 1280, 3), dtype=np.uint8)
-    width, height = frame_img.size
+    
+    # Ensure frame_img is RGB (not RGBA) for proper compositing
+    if frame_img.mode != 'RGB':
+        frame_img = frame_img.convert('RGB')
+    
+    # Create transparent overlay
     overlay = Image.new('RGBA', frame_img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
+    
+    # Skip drawing if no text
+    if not text.strip():
+        return np.array(frame_img)
+    
+    # Get font and calculate text position
     font_path = get_system_font(style["font"])
     print(f"DEBUG: Using font path: {font_path}")
     font = ImageFont.truetype(font_path, style["font_size"])
     text_width, text_height = get_text_size(draw, text, font)
     padding = style["highlight_padding"]
+    
     if style["position"] == "bottom":
-        text_x = (width - text_width) // 2 if style["align"] == "center" else padding
-        text_y = height - text_height - padding * 2
+        text_x = (frame_img.width - text_width) // 2 if style["align"] == "center" else padding
+        text_y = frame_img.height - text_height - padding * 2
     elif style["position"] == "top":
-        text_x = (width - text_width) // 2 if style["align"] == "center" else padding
+        text_x = (frame_img.width - text_width) // 2 if style["align"] == "center" else padding
         text_y = padding
     elif style["position"] == "center":
-        text_x = (width - text_width) // 2
-        text_y = (height - text_height) // 2
+        text_x = (frame_img.width - text_width) // 2
+        text_y = (frame_img.height - text_height) // 2
+    
+    # Draw highlight/background if specified
     if style["highlight_color"]:
+        highlight_color = style["highlight_color"]
+        # Convert RGB to RGBA if needed
+        if len(highlight_color) == 3:
+            highlight_color = highlight_color + (180,)  # Add alpha
+            
         draw.rounded_rectangle(
             [
                 text_x - padding, 
@@ -816,24 +858,38 @@ def make_simple_frame_with_text(frame_img, text, style):
                 text_y + text_height + padding
             ],
             radius=padding,
-            fill=style["highlight_color"]
+            fill=highlight_color
         )
+    
+    # Draw shadow if specified
     if style["shadow"]:
         shadow_offset = 2
+        shadow_color = (0, 0, 0, 160)  # RGBA
         draw.text(
             (text_x + shadow_offset, text_y + shadow_offset),
             text,
             font=font,
-            fill=(0, 0, 0, 160)
+            fill=shadow_color
         )
+    
+    # Draw main text (make sure color is RGBA)
+    text_color = style["text_color"]
+    if len(text_color) == 3:
+        text_color = text_color + (255,)  # Add full alpha
+        
     draw.text(
         (text_x, text_y),
         text,
         font=font,
-        fill=style["text_color"]
+        fill=text_color
     )
-    result = Image.alpha_composite(frame_img.convert('RGBA'), overlay)
+    
+    # Proper composite of overlay onto frame
+    frame_rgba = frame_img.convert('RGBA')
+    result = Image.alpha_composite(frame_rgba, overlay)
     print("DEBUG: Composited overlay onto frame_img")
+    
+    # Convert back to RGB for MoviePy
     return np.array(result.convert('RGB'))
 
 @error_handler
