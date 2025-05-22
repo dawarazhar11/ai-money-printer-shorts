@@ -276,6 +276,30 @@ def main():
         test_all_styles(video_path, engine, model_size)
         return
     
+    if test_mode == "quick_test":
+        # Just run a simple caption test with the most basic style
+        print(f"Running quick caption test on {video_path}")
+        output_dir = "test_outputs"
+        os.makedirs(output_dir, exist_ok=True)
+        output_path = os.path.join(output_dir, f"quick_test_caption.mp4")
+        
+        result = add_captions_to_video(
+            video_path=video_path,
+            output_path=output_path,
+            style_name="tiktok",
+            model_size="tiny",  # Use tiny model for speed
+            engine="auto"
+        )
+        
+        if result["status"] == "success":
+            print(f"✅ Quick test successful! Output saved to: {result['output_path']}")
+        else:
+            print(f"❌ Quick test failed: {result.get('message', 'Unknown error')}")
+            if "traceback" in result:
+                print("\nError details:")
+                print(result["traceback"])
+        return
+    
     # Run the standard tests
     print(f"Testing caption functionality with video: {video_path}")
     
