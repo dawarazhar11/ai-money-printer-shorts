@@ -364,13 +364,49 @@ def main():
                 # Position selection
                 position = st.selectbox(
                     "Text Position:",
-                    ["top", "center", "bottom", "bottom-left", "bottom-right", "top-left", "top-right"],
-                    index=["top", "center", "bottom", "bottom-left", "bottom-right", "top-left", "top-right"].index(
+                    ["bottom", "center", "top", "bottom-left", "bottom-right", "top-left", "top-right", "custom"],
+                    index=["bottom", "center", "top", "bottom-left", "bottom-right", "top-left", "top-right", "custom"].index(
                         st.session_state.autocaptions["custom_appearance"].get("position", "bottom")
                     ),
                     key="custom_position"
                 )
                 st.session_state.autocaptions["custom_appearance"]["position"] = position
+                
+                # Add manual position controls if custom position is selected
+                if position == "custom":
+                    # Initialize custom_x and custom_y if not present
+                    if "custom_x" not in st.session_state.autocaptions["custom_appearance"]:
+                        st.session_state.autocaptions["custom_appearance"]["custom_x"] = 50
+                    if "custom_y" not in st.session_state.autocaptions["custom_appearance"]:
+                        st.session_state.autocaptions["custom_appearance"]["custom_y"] = 80
+                    
+                    # Add sliders for X and Y position (as percentage of video dimensions)
+                    custom_x = st.slider("Horizontal Position (%)", 0, 100, 
+                                    st.session_state.autocaptions["custom_appearance"]["custom_x"],
+                                    help="0% = left edge, 50% = center, 100% = right edge",
+                                    key="custom_x_pos")
+                    custom_y = st.slider("Vertical Position (%)", 0, 100, 
+                                    st.session_state.autocaptions["custom_appearance"]["custom_y"],
+                                    help="0% = top edge, 50% = middle, 100% = bottom edge",
+                                    key="custom_y_pos")
+                    
+                    st.session_state.autocaptions["custom_appearance"]["custom_x"] = custom_x
+                    st.session_state.autocaptions["custom_appearance"]["custom_y"] = custom_y
+                
+                # Text alignment option
+                if "text_align" not in st.session_state.autocaptions["custom_appearance"]:
+                    st.session_state.autocaptions["custom_appearance"]["text_align"] = "center"
+                
+                text_align = st.radio(
+                    "Text Alignment:",
+                    ["left", "center", "right"],
+                    ["left", "center", "right"].index(
+                        st.session_state.autocaptions["custom_appearance"].get("text_align", "center")
+                    ),
+                    horizontal=True,
+                    key="text_align"
+                )
+                st.session_state.autocaptions["custom_appearance"]["text_align"] = text_align
                 
                 # Text color selection
                 text_color_r = st.slider("Text Color (Red)", 0, 255, int(st.session_state.autocaptions["custom_appearance"]["text_color"][0]), key="text_color_r")
@@ -411,9 +447,17 @@ def main():
                 preview_color = f"rgb({text_color_r}, {text_color_g}, {text_color_b})"
                 preview_bg = "transparent" if not use_background else f"rgba({bg_color_r}, {bg_color_g}, {bg_color_b}, {bg_alpha/255})"
                 
+                # Get text alignment
+                text_align = st.session_state.autocaptions["custom_appearance"].get("text_align", "center")
+                
                 # Calculate position styling
                 position_style = ""
-                if "top" in position:
+                if position == "custom":
+                    # Use the exact percentages for custom positioning
+                    custom_x = st.session_state.autocaptions["custom_appearance"]["custom_x"]
+                    custom_y = st.session_state.autocaptions["custom_appearance"]["custom_y"]
+                    position_style = f"left: {custom_x}%; top: {custom_y}%; transform: translate(-50%, -50%);"
+                elif "top" in position:
                     position_style += "top: 20px;"
                     if "center" not in position:
                         position_style += "bottom: auto;"
@@ -423,25 +467,54 @@ def main():
                 else:  # center
                     position_style += "top: 50%; transform: translateY(-50%);"
                 
-                if "left" in position:
-                    position_style += "left: 20px; right: auto; text-align: left;"
-                elif "right" in position:
-                    position_style += "right: 20px; left: auto; text-align: right;"
-                else:
-                    position_style += "left: 50%; transform: translateX(-50%);"
-                    if "center" == position:
-                        position_style = "top: 50%; left: 50%; transform: translate(-50%, -50%);"
+                if position != "custom":
+                    if "left" in position:
+                        position_style += "left: 20px; right: auto; text-align: left;"
+                    elif "right" in position:
+                        position_style += "right: 20px; left: auto; text-align: right;"
+                    else:
+                        position_style += "left: 50%; transform: translateX(-50%);"
+                        if "center" == position:
+                            position_style = "top: 50%; left: 50%; transform: translate(-50%, -50%);"
                 
+                # Create a realistic 16:9 video frame preview with sample content
                 st.markdown(f"""
                 <div style="
                     position: relative;
                     width: 100%;
-                    height: 150px;
-                    background-color: #000;
+                    padding-bottom: 56.25%; /* 16:9 aspect ratio */
+                    background-color: #222;
                     margin-top: 10px;
                     border-radius: 5px;
                     overflow: hidden;
+                    background-image: linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px),
+                                     linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px);
+                    background-size: 10% 10%;
                 ">
+                    <!-- Sample video frame content -->
+                    <div style="
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        width: 100%;
+                        height: 100%;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        color: rgba(255,255,255,0.2);
+                        font-size: 24px;
+                        font-family: Arial, sans-serif;
+                    ">
+                        16:9 Video Frame
+                    </div>
+                    
+                    <!-- Resolution markers -->
+                    <div style="position: absolute; top: 5px; left: 5px; color: rgba(255,255,255,0.5); font-size: 12px;">0%,0%</div>
+                    <div style="position: absolute; top: 5px; right: 5px; color: rgba(255,255,255,0.5); font-size: 12px;">100%,0%</div>
+                    <div style="position: absolute; bottom: 5px; left: 5px; color: rgba(255,255,255,0.5); font-size: 12px;">0%,100%</div>
+                    <div style="position: absolute; bottom: 5px; right: 5px; color: rgba(255,255,255,0.5); font-size: 12px;">100%,100%</div>
+                    
+                    <!-- Caption text -->
                     <div style="
                         position: absolute;
                         {position_style}
@@ -454,9 +527,14 @@ def main():
                         font-weight: bold;
                         text-shadow: 1px 1px 2px #000;
                         max-width: {max_width}%;
+                        text-align: {text_align};
+                        z-index: 10;
                     ">
                         Sample Custom Caption
                     </div>
+                    
+                    <!-- Position indicator for custom position -->
+                    {f'<div style="position: absolute; left: {custom_x}%; top: {custom_y}%; transform: translate(-50%, -50%); color: rgba(255,255,255,0.7); font-size: 10px; pointer-events: none;">({custom_x}%,{custom_y}%)</div>' if position == 'custom' else ''}
                 </div>
                 """, unsafe_allow_html=True)
         
@@ -649,6 +727,12 @@ def main():
                             mapped_position = position_mapping.get(position, "bottom")
                             custom_style["position"] = mapped_position
                             
+                            # If custom position, add the exact coordinates
+                            if position == "custom":
+                                custom_style["custom_x"] = custom_appearance.get("custom_x", 50)
+                                custom_style["custom_y"] = custom_appearance.get("custom_y", 80)
+                                print(f"Using custom position coordinates: x={custom_style['custom_x']}%, y={custom_style['custom_y']}%")
+                            
                             # Apply text color
                             custom_style["text_color"] = custom_appearance.get("text_color", (255, 255, 255))
                             
@@ -664,7 +748,10 @@ def main():
                             # Apply maximum width (we'll add this as a custom property)
                             custom_style["max_width_percent"] = custom_appearance.get("max_width", 80)
                             
-                            print(f"Applied custom appearance settings: position={mapped_position}, font_size={custom_style['font_size']}, max_width={custom_style.get('max_width_percent')}%")
+                            # Apply text alignment
+                            custom_style["text_align"] = custom_appearance.get("text_align", "center")
+                            
+                            print(f"Applied custom appearance settings: position={mapped_position}, font_size={custom_style['font_size']}, max_width={custom_style.get('max_width_percent')}%, align={custom_style['text_align']}")
                         
                         # Pre-processing progress update
                         update_progress(10, "Preparing for captioning")

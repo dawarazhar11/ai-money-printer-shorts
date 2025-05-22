@@ -49,9 +49,18 @@ def apply_kinetic_typography(img, text, font, position, color, progress, amplitu
     # Remove extra spacing after last word
     total_width -= 10
     
-    # Calculate starting x position to center the text block
+    # Calculate starting x position based on alignment
     x, y = position
-    start_x = x - total_width // 2
+    
+    # Determine text alignment
+    text_align = getattr(img, "text_align", "center")
+    
+    if text_align == "left":
+        start_x = x
+    elif text_align == "right":
+        start_x = x - total_width
+    else:  # center (default)
+        start_x = x - total_width // 2
     
     # Draw each word with its own movement
     current_x = start_x
@@ -107,6 +116,9 @@ def apply_audio_reactive_text(img, text, font, position, color, audio_level, bas
     text_img = Image.new('RGBA', img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(text_img)
     
+    # Get text alignment from style
+    text_align = getattr(img, "text_align", "center")
+    
     # Calculate scale factor based on audio level
     scale = base_size + (max_scale - base_size) * audio_level
     
@@ -123,9 +135,20 @@ def apply_audio_reactive_text(img, text, font, position, color, audio_level, bas
         # Fallback if we can't get the font path
         scaled_font = font
     
-    # Calculate position adjustments to keep text centered
+    # Calculate scaled text dimensions
+    scaled_text_bbox = scaled_font.getbbox(text)
+    scaled_text_width = scaled_text_bbox[2]
+    
+    # Calculate position adjustments to keep text centered or aligned
     x, y = position
-    x_adjust = (text_width * scale - text_width) // 2
+    
+    if text_align == "left":
+        x_adjust = 0
+    elif text_align == "right":
+        x_adjust = scaled_text_width - text_width
+    else:  # center (default)
+        x_adjust = (scaled_text_width - text_width) // 2
+    
     y_adjust = (text_height * scale - text_height) // 2
     
     # Draw the text with scaled font
@@ -169,13 +192,22 @@ def apply_character_animation(img, text, font, position, color, progress, effect
     text_img = Image.new('RGBA', img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(text_img)
     
+    # Get text alignment from style
+    text_align = getattr(img, "text_align", "center")
+    
     # Calculate total width to center the text block
     text_bbox = font.getbbox(text)
     text_width = text_bbox[2]
     
-    # Calculate starting x position to center the text
+    # Calculate starting x position based on alignment
     x, y = position
-    start_x = x - text_width // 2
+    
+    if text_align == "left":
+        start_x = x
+    elif text_align == "right":
+        start_x = x - text_width
+    else:  # center (default)
+        start_x = x - text_width // 2
     
     # Calculate how many characters to show based on progress
     char_count = len(text)
@@ -340,6 +372,24 @@ def make_frame_with_advanced_typography(frame, text, font_path, font_size, curre
     elif position == "top_right" or position == "top-right":
         text_x = width - text_width // 2 - style["highlight_padding"]
         text_y = style["highlight_padding"]
+    elif position == "custom" and "custom_x" in style and "custom_y" in style:
+        # Use the exact custom position coordinates
+        custom_x_percent = style["custom_x"]
+        custom_y_percent = style["custom_y"]
+        
+        # Convert percentages to pixel coordinates
+        text_x = int(width * custom_x_percent / 100)
+        text_y = int(height * custom_y_percent / 100)
+        
+        # Adjust for text centering if needed
+        if style.get("text_align", "center") == "center":
+            pass  # text_x is already the center point
+        elif style.get("text_align", "center") == "left":
+            text_x += text_width // 2  # Adjust because we'll center the text at text_x
+        elif style.get("text_align", "center") == "right":
+            text_x -= text_width // 2
+            
+        print(f"Using custom position: {custom_x_percent}% x {custom_y_percent}% → ({text_x}, {text_y}) px")
     else:
         # Default to bottom if unknown position
         text_x = width // 2
@@ -395,6 +445,9 @@ def make_frame_with_advanced_typography(frame, text, font_path, font_size, curre
     
     # Apply selected effects
     if "kinetic_typography" in effects:
+        # Set text alignment attribute on the image for the effect function to use
+        frame_pil.text_align = style.get("text_align", "center")
+        
         frame_pil = apply_kinetic_typography(
             frame_pil, text, font, (text_x, text_y), 
             style["text_color"], current_time % 1.0
@@ -402,6 +455,10 @@ def make_frame_with_advanced_typography(frame, text, font_path, font_size, curre
     elif "audio_reactive" in effects:
         # Use a simulated audio level if real data not provided
         audio_level = 0.5 + 0.5 * math.sin(current_time * math.pi) if audio_data is None else audio_data
+        
+        # Set text alignment attribute on the image for the effect function to use
+        frame_pil.text_align = style.get("text_align", "center")
+        
         frame_pil = apply_audio_reactive_text(
             frame_pil, text, font, (text_x, text_y), 
             style["text_color"], audio_level
@@ -411,6 +468,9 @@ def make_frame_with_advanced_typography(frame, text, font_path, font_size, curre
         effect_type = "typewriter"
         if "character_effect" in style:
             effect_type = style["character_effect"]
+        
+        # Set text alignment attribute on the image for the effect function to use
+        frame_pil.text_align = style.get("text_align", "center")
         
         frame_pil = apply_character_animation(
             frame_pil, text, font, (text_x, text_y), 
