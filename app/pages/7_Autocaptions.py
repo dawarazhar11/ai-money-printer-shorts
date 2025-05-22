@@ -208,6 +208,10 @@ def main():
             
             # Advanced styles section
             st.markdown("### Advanced Typography")
+            st.warning("Advanced typography styles are temporarily disabled while we improve stability and performance.")
+            
+            # Commented out advanced typography UI
+            """
             st.write("These styles provide more eye-catching caption effects:")
             
             # Create radio buttons for advanced style categories
@@ -252,6 +256,7 @@ def main():
                     st.session_state.autocaptions["selected_style"] = "spin_in"
                     # Add success message
                     st.success("✅ Character Spin In style applied!")
+            """
             
             # Get available transcription engines
             engines = get_available_transcription_engines()
@@ -306,6 +311,12 @@ def main():
             
             # Typography effects selection
             st.markdown("### Typography Effects")
+            
+            # Temporarily disable typography effects
+            st.warning("Typography effects are temporarily disabled while we improve stability and performance.")
+            
+            # Commented out typography effects UI
+            """
             st.write("Select typography effects to apply to captions:")
             
             # Get current effects or initialize with defaults
@@ -332,7 +343,11 @@ def main():
                 st.success(f"Selected typography effects: {', '.join([e.replace('_', ' ').title() for e in selected_effects])}")
             else:
                 st.info("No typography effects selected. Check options above to add visual effects to your captions.")
-                
+            """
+            
+            # Reset typography effects in session state
+            st.session_state.autocaptions["typography_effects"] = []
+            
             # Caption appearance customization
             st.markdown("### Caption Customization")
             st.write("Customize the appearance and position of your captions:")
@@ -656,48 +671,10 @@ def main():
                         # Check if we need to customize the style with effects
                         custom_style = None
                         if selected_effects:
-                            # Create a custom style based on the selected style but with our effects
-                            try:
-                                from utils.video.captions import CAPTION_STYLES
-                                base_style = CAPTION_STYLES.get(style_name, {}).copy()
-                                
-                                # Ensure we don't lose any existing effects if this style already has them
-                                existing_effects = base_style.get("typography_effects", [])
-                                
-                                # Combine existing style-specific effects with user-selected effects
-                                all_effects = list(set(existing_effects + selected_effects))
-                                
-                                # Update the style with all effects
-                                base_style["typography_effects"] = all_effects
-                                
-                                # Set additional parameters for specific effects if needed
-                                if "audio_reactive" in all_effects:
-                                    # Make sure to include this effect even if the style is different
-                                    if style_name != "audio_pulse":
-                                        print("Adding audio reactive effect to custom style")
-                                
-                                if "kinetic_typography" in all_effects:
-                                    # Make sure to include this effect even if the style is different
-                                    if style_name != "kinetic":
-                                        print("Adding kinetic typography effect to custom style")
-                                
-                                if "character_animation" in all_effects:
-                                    # If a character animation is selected, make sure the character_effect is set
-                                    if "character_effect" not in base_style:
-                                        # Default to fade_in if not specified
-                                        base_style["character_effect"] = "fade_in"
-                                        print("Set default character effect to fade_in")
-                                
-                                # Use this as our custom style
-                                custom_style = base_style
-                                
-                                # Log the effects being used
-                                print(f"Using custom style with effects: {all_effects}")
-                                
-                            except ImportError:
-                                st.warning("Could not load base styles, using selected style without custom effects")
+                            # Typography effects are disabled, so we won't add any
+                            print("Typography effects are disabled, ignoring selected effects")
                         
-                        # Apply custom appearance settings if enabled
+                        # Create custom style for appearance settings if needed
                         custom_appearance = st.session_state.autocaptions.get("custom_appearance", {})
                         if custom_appearance.get("enabled", False):
                             # If we don't have a custom style yet, create one based on the selected style
