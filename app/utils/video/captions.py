@@ -751,11 +751,20 @@ def make_frame_with_text(frame, text, style, word_info=None, current_time=0, is_
         # Debug: save the first frame
         if int(current_time) == 0:
             try:
-                result.save("debug_caption_frame.png")
+                if not isinstance(result, np.ndarray):
+                    result.save("debug_caption_frame.png")
+                else:
+                    Image.fromarray(result).save("debug_caption_frame.png")
                 print("DEBUG: Saved debug_caption_frame.png")
             except Exception as e:
                 print(f"DEBUG: Could not save debug frame: {e}")
-        return np.array(result.convert('RGB'))
+        
+        # Convert result to numpy array, handling both PIL Image and numpy array cases
+        if isinstance(result, Image.Image):
+            return np.array(result.convert('RGB'))
+        else:
+            # Result is already a numpy array
+            return result
     except Exception as e:
         print(f"ERROR in make_frame_with_text: {e}")
         # Return the original frame on error
