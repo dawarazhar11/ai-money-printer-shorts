@@ -423,46 +423,31 @@ CAPTION_STYLES.update({
 
 def get_system_font(font_name):
     """Get a system font or default to Arial"""
-    # Common font locations by platform
+    import os
+    import sys
+    
+    # Use more reliable system fonts for macOS
     if sys.platform == "darwin":  # macOS
-        font_dirs = [
-            "/System/Library/Fonts",
-            "/Library/Fonts",
-            os.path.expanduser("~/Library/Fonts")
-        ]
-    elif sys.platform == "win32":  # Windows
-        font_dirs = [
-            "C:\\Windows\\Fonts"
-        ]
-    else:  # Linux and others
-        font_dirs = [
-            "/usr/share/fonts",
-            "/usr/local/share/fonts",
-            os.path.expanduser("~/.fonts")
-        ]
-    
-    # Common font filename patterns by requested name
-    font_options = {
-        "Arial-Bold.ttf": ["Arial Bold.ttf", "Arial-Bold.ttf", "arialbd.ttf"],
-        "Arial.ttf": ["Arial.ttf", "arial.ttf"],
-        "Impact.ttf": ["Impact.ttf", "impact.ttf"],
-        "Georgia.ttf": ["Georgia.ttf", "georgia.ttf"],
-    }
-    
-    # Try to find the specified font
-    if font_name in font_options:
-        for font_dir in font_dirs:
-            if os.path.exists(font_dir):
-                for font_file in font_options[font_name]:
-                    font_path = os.path.join(font_dir, font_file)
-                    if os.path.exists(font_path):
-                        print(f"DEBUG: Found system font: {font_path}")
-                        return font_path
-    
-    # Default font fallbacks by platform
-    if sys.platform == "darwin":  # macOS
+        # Try user-provided font name first
+        if font_name and os.path.exists(font_name):
+            return font_name
+            
+        # macOS system fonts that are more reliable
+        if font_name in ["Arial-Bold.ttf", "Arial Bold.ttf", "arialbd.ttf"]:
+            font_path = "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
+            if os.path.exists(font_path):
+                return font_path
+        elif font_name in ["Arial.ttf", "arial.ttf"]:
+            font_path = "/System/Library/Fonts/Supplemental/Arial.ttf"
+            if os.path.exists(font_path):
+                return font_path
+        elif font_name in ["Impact.ttf", "impact.ttf"]:
+            font_path = "/System/Library/Fonts/Supplemental/Impact.ttf"
+            if os.path.exists(font_path):
+                return font_path
+        
+        # Fallback system fonts on macOS
         fallbacks = [
-            "/System/Library/Fonts/SFNS.ttf",  # San Francisco
             "/System/Library/Fonts/Helvetica.ttc",
             "/System/Library/Fonts/Geneva.ttf",
             "/System/Library/Fonts/HelveticaNeue.ttc",
@@ -470,338 +455,171 @@ def get_system_font(font_name):
         ]
         for fallback in fallbacks:
             if os.path.exists(fallback):
-                print(f"DEBUG: Using fallback macOS font: {fallback}")
                 return fallback
-        return "/System/Library/Fonts/SFNS.ttf"  # Default fallback even if it doesn't exist
+        return "/System/Library/Fonts/Helvetica.ttc"
+        
+    # Windows paths
     elif sys.platform == "win32":  # Windows
-        return "C:\\Windows\\Fonts\\arial.ttf"  # Arial
-    else:  # Linux and others
-        return "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"  # DejaVu Sans
+        font_dir = "C:\\Windows\\Fonts"
+        if font_name in ["Arial-Bold.ttf", "Arial Bold.ttf", "arialbd.ttf"]:
+            return os.path.join(font_dir, "arialbd.ttf")
+        elif font_name in ["Arial.ttf", "arial.ttf"]:
+            return os.path.join(font_dir, "arial.ttf")
+        elif font_name in ["Impact.ttf", "impact.ttf"]:
+            return os.path.join(font_dir, "impact.ttf")
+        else:
+            # Fallback to Arial
+            return os.path.join(font_dir, "arial.ttf")
+    
+    # Linux and others
+    else:
+        # Try to use DejaVu fonts which are commonly available
+        if font_name in ["Arial-Bold.ttf", "Arial Bold.ttf", "arialbd.ttf"]:
+            return "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+        elif font_name in ["Arial.ttf", "arial.ttf"]:
+            return "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+        elif font_name in ["Impact.ttf", "impact.ttf"]:
+            return "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+        else:
+            # Fallback
+            return "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
-def make_simple_frame_with_text(frame_img, text, style):
-    """Original function for simple text overlay without effects"""
+def make_frame_with_text(frame_img, text, words_with_times, current_time, style, effect_params=None):
+    """Apply text to a video frame with timing-aware effects"""
     from PIL import ImageDraw, ImageFont, Image
     import numpy as np
-    
-    # Ensure input is a numpy array
-    if not isinstance(frame_img, np.ndarray):
-        try:
-            frame_img = np.array(frame_img)
-        except:
-            # Return a black frame if conversion fails
-            return np.zeros((720, 1280, 3), dtype=np.uint8)
+    import sys
     
     # Skip if no text
     if not text or not text.strip():
         return frame_img
     
-    # Convert to PIL Image
-    frame_pil = Image.fromarray(frame_img)
-    
-    # Create a drawing context
-    draw = ImageDraw.Draw(frame_pil)
-    
-    # Get font and calculate text position
-    font_path = get_system_font(style["font"])
-    print(f"DEBUG: Using font path: {font_path}")
-    font = ImageFont.truetype(font_path, style["font_size"])
-    text_width, text_height = get_text_size(draw, text, font)
-    padding = style["highlight_padding"]
-    
-    # Calculate text position
-    if style["position"] == "bottom":
-        text_x = (frame_pil.width - text_width) // 2 if style["align"] == "center" else padding
-        text_y = frame_pil.height - text_height - padding * 2
-    elif style["position"] == "top":
-        text_x = (frame_pil.width - text_width) // 2 if style["align"] == "center" else padding
-        text_y = padding
-    else:  # center
-        text_x = (frame_pil.width - text_width) // 2
-        text_y = (frame_pil.height - text_height) // 2
-    
-    # Draw highlight/background if specified
-    if style["highlight_color"]:
-        # Get highlight color
-        highlight_color = style["highlight_color"]
-        if len(highlight_color) == 3:
-            highlight_color = highlight_color + (180,)  # Add alpha
-        
-        # Draw background with rounded corners
-        draw.rounded_rectangle(
-            [
-                text_x - padding, 
-                text_y - padding, 
-                text_x + text_width + padding, 
-                text_y + text_height + padding
-            ],
-            radius=padding,
-            fill=highlight_color[:3]  # Remove alpha for PIL drawing
-        )
-    
-    # Draw shadow if specified
-    if style["shadow"]:
-        shadow_offset = 2
-        draw.text(
-            (text_x + shadow_offset, text_y + shadow_offset),
-            text,
-            font=font,
-            fill=(0, 0, 0)
-        )
-    
-    # Draw the text
-    text_color = style["text_color"]
-    draw.text(
-        (text_x, text_y),
-        text,
-        font=font,
-        fill=text_color[:3] if len(text_color) > 3 else text_color
-    )
-    
-    # Convert back to numpy array
-    return np.array(frame_pil)
-
-def make_frame_with_text(frame, text, style, word_info=None, current_time=0, is_active=True):
-    """Create a frame with styled text overlay including typography effects"""
-    from PIL import Image
-    import numpy as np
-    
+    # Ensure frame_img is a numpy array
     try:
-        # Convert MoviePy frame to numpy array
-        if callable(frame):
-            frame = frame(current_time)
-            
-        # Ensure frame is a numpy array
-        if not isinstance(frame, np.ndarray):
-            print(f"Warning: frame is not a numpy array, but {type(frame)}")
-            return frame
-        
-        # Skip if no text
-        if not text or not text.strip():
-            return frame
-        
-        # Debug info
-        print(f"DEBUG: Drawing text '{text}' at time {current_time}")
-        
-        # Apply typography effects if style has them, otherwise use simple text
-        if "typography_effects" in style and style["typography_effects"]:
-            # Use the typography effects
-            result = simple_typography_effects(frame, text, style, word_info, current_time, is_active)
-        else:
-            # Use simple text overlay
-            result = make_simple_frame_with_text(frame, text, style)
-        
-        # Debug: save the first frame
-        if int(current_time) == 0:
-            try:
-                Image.fromarray(result).save("debug_caption_frame.png")
-                print("DEBUG: Saved debug_caption_frame.png")
-            except Exception as e:
-                print(f"DEBUG: Could not save debug frame: {e}")
-        
-        return result
+        if not isinstance(frame_img, np.ndarray):
+            frame_img = np.array(frame_img)
     except Exception as e:
         print(f"ERROR in make_frame_with_text: {e}")
-        # Return the original frame on error
-        return frame
-
-def simple_typography_effects(frame, text, style, word_info=None, current_time=0, is_active=True):
-    """Simplified version of typography effects that works reliably"""
-    from PIL import Image, ImageDraw, ImageFont
-    import numpy as np
-    import math
+        # Return a black frame as fallback
+        return np.zeros((720, 1280, 3), dtype=np.uint8)
     
-    # Skip if no text
-    if not text or not text.strip():
-        return frame
+    # Convert to PIL Image for drawing
+    frame_pil = Image.fromarray(frame_img)
     
-    # Convert to PIL Image
-    frame_pil = Image.fromarray(frame)
+    # Make sure we have an RGBA image for proper alpha handling
+    if frame_pil.mode != 'RGBA':
+        frame_pil = frame_pil.convert('RGBA')
     
-    # Create drawing context
-    draw = ImageDraw.Draw(frame_pil)
+    # Get frame dimensions
+    width, height = frame_pil.size
     
-    # Get the base font
-    font_path = get_system_font(style["font"])
-    font_size = style["font_size"]
+    # Create a transparent overlay for the text
+    text_overlay = Image.new('RGBA', frame_pil.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(text_overlay)
     
-    # Get available effects
-    effects = style.get("typography_effects", [])
+    # Get font - either from style or use a default
+    font_path = get_system_font(style.get("font", "Arial Bold.ttf"))
     
-    # Initialize effect parameters
-    opacity = 1.0 if is_active else 0.5
-    scale_factor = 1.0
-    text_color = style["text_color"]
-    x_offset = 0
-    y_offset = 0
+    # Get or compute font size
+    font_size = style.get("font_size", int(height * 0.05))  # 5% of height as default
     
-    # Apply effects if word timing is available
-    if word_info and "start" in word_info and "end" in word_info and is_active:
-        word_start = word_info["start"]
-        word_end = word_info["end"]
-        word_duration = max(0.1, word_end - word_start)  # Ensure duration is not zero
-        time_in_word = current_time - word_start
-        
-        # Apply fade effect
-        if "fade" in effects:
-            fade_in_duration = TYPOGRAPHY_EFFECTS["fade"]["params"]["fade_in_duration"]
-            fade_out_duration = TYPOGRAPHY_EFFECTS["fade"]["params"]["fade_out_duration"]
+    # Static variable to track if we've already logged about finding this font
+    if not hasattr(make_frame_with_text, "logged_fonts"):
+        make_frame_with_text.logged_fonts = set()
+    
+    try:
+        font = ImageFont.truetype(font_path, font_size)
+        # Only log each font path once to reduce console spam
+        if font_path not in make_frame_with_text.logged_fonts:
+            print(f"DEBUG: Found system font: {font_path}")
+            make_frame_with_text.logged_fonts.add(font_path)
+    except Exception as e:
+        print(f"Warning: Could not load font {font_path}: {e}")
+        # Fallback to default font
+        try:
+            # Try PIL's default font
+            font = ImageFont.load_default()
+        except:
+            # If all else fails, just return the original frame
+            return frame_img
+    
+    # Get text properties from style
+    text_color = style.get("text_color", (255, 255, 255))
+    bg_color = style.get("highlight_color", None)
+    position = style.get("position", "bottom")
+    padding = style.get("highlight_padding", 15)
+    
+    # Simple text positioning based on the position setting
+    if position == "top":
+        y_position = padding
+    elif position == "middle":
+        y_position = height // 2
+    else:  # bottom (default)
+        y_position = height - (font_size * 2) - padding
+    
+    # Calculate text width and center horizontally
+    try:
+        # Try newer Pillow 10.0+ method first
+        text_width, text_height = draw.textbbox((0, 0), text, font=font)[2:]
+    except (AttributeError, TypeError):
+        try:
+            # Fall back to older method
+            text_width, text_height = draw.textsize(text, font=font)
+        except (AttributeError, TypeError):
+            # Last resort fallback - estimate based on font size
+            text_width, text_height = len(text) * font.size * 0.6, font.size * 1.2
+    
+    x_position = (width - text_width) // 2
+    
+    # Draw text background if specified
+    if bg_color:
+        # Convert to RGBA if needed
+        if len(bg_color) == 3:
+            bg_color = (*bg_color, 180)  # Add alpha
             
-            if time_in_word < fade_in_duration:
-                # Fade in
-                opacity = min(1.0, time_in_word / fade_in_duration)
-            elif time_in_word > word_duration - fade_out_duration:
-                # Fade out
-                time_to_end = word_duration - time_in_word
-                opacity = max(0.0, time_to_end / fade_out_duration)
-        
-        # Apply scale effect
-        if "scale" in effects:
-            min_scale = TYPOGRAPHY_EFFECTS["scale"]["params"]["min_scale"]
-            max_scale = TYPOGRAPHY_EFFECTS["scale"]["params"]["max_scale"]
-            scale_duration = TYPOGRAPHY_EFFECTS["scale"]["params"]["scale_duration"]
-            
-            if time_in_word < scale_duration:
-                # Scale up at the beginning
-                progress = time_in_word / scale_duration
-                scale_factor = min_scale + (max_scale - min_scale) * progress
-            elif time_in_word > word_duration - scale_duration:
-                # Scale down at the end
-                progress = (word_duration - time_in_word) / scale_duration
-                scale_factor = min_scale + (max_scale - min_scale) * progress
-            else:
-                # Maintain max scale in the middle
-                scale_factor = max_scale
-        
-        # Apply color shift effect
-        if "color_shift" in effects:
-            regular_color = TYPOGRAPHY_EFFECTS["color_shift"]["params"]["regular_color"]
-            emphasis_color = TYPOGRAPHY_EFFECTS["color_shift"]["params"]["emphasis_color"]
-            strong_emphasis_color = TYPOGRAPHY_EFFECTS["color_shift"]["params"]["strong_emphasis_color"]
-            
-            # Use emphasis color in the middle of the word duration
-            mid_point = word_duration / 2
-            distance_from_mid = abs(time_in_word - mid_point)
-            color_shift_threshold = word_duration / 4
-            
-            if distance_from_mid < color_shift_threshold:
-                # Use strong emphasis near the middle
-                text_color = strong_emphasis_color
-            elif distance_from_mid < color_shift_threshold * 2:
-                # Use regular emphasis a bit further from middle
-                text_color = emphasis_color
-            else:
-                # Use regular color toward beginning and end
-                text_color = regular_color
-        
-        # Apply wave effect
-        if "wave" in effects:
-            amplitude = TYPOGRAPHY_EFFECTS["wave"]["params"]["amplitude"]
-            frequency = TYPOGRAPHY_EFFECTS["wave"]["params"]["frequency"]
-            
-            # Create a wave motion based on time
-            progress = time_in_word / word_duration
-            wave_position = progress * 2 * 3.1416 * frequency
-            y_offset = amplitude * math.sin(wave_position)
-    
-    # Apply the calculated font size with scaling
-    scaled_font_size = max(10, int(font_size * scale_factor))
-    font = ImageFont.truetype(font_path, scaled_font_size)
-    
-    # Calculate text position
-    text_width, text_height = get_text_size(draw, text, font)
-    padding = style["highlight_padding"]
-    
-    if style["position"] == "bottom":
-        text_x = (frame_pil.width - text_width) // 2 if style["align"] == "center" else padding
-        text_y = frame_pil.height - text_height - padding * 2
-    elif style["position"] == "top":
-        text_x = (frame_pil.width - text_width) // 2 if style["align"] == "center" else padding
-        text_y = padding
-    else:  # center
-        text_x = (frame_pil.width - text_width) // 2
-        text_y = (frame_pil.height - text_height) // 2
-    
-    # Apply offsets
-    text_x += int(x_offset)
-    text_y += int(y_offset)
-    
-    # Draw highlight/background if specified
-    if style["highlight_color"]:
-        highlight_color = style["highlight_color"]
-        # Apply opacity
-        if opacity < 1.0:
-            # Use a lighter color for less opacity (since we can't use alpha)
-            if len(highlight_color) == 4:
-                # Already has alpha
-                r, g, b, a = highlight_color
-                a = int(a * opacity)
-                highlight_color = (r, g, b)
-            else:
-                r, g, b = highlight_color
-                # Blend with white for lower opacity
-                r = int(r + (255 - r) * (1 - opacity))
-                g = int(g + (255 - g) * (1 - opacity))
-                b = int(b + (255 - b) * (1 - opacity))
-                highlight_color = (r, g, b)
-        
-        # Draw background
-        draw.rounded_rectangle(
+        # Draw rounded rectangle for background
+        draw.rectangle(
             [
-                text_x - padding, 
-                text_y - padding, 
-                text_x + text_width + padding, 
-                text_y + text_height + padding
+                x_position - padding,
+                y_position - padding,
+                x_position + text_width + padding,
+                y_position + text_height + padding
             ],
-            radius=padding,
-            fill=highlight_color[:3]  # Ensure only RGB is used
+            fill=bg_color
         )
-    
-    # Draw shadow if specified
-    if style["shadow"]:
-        shadow_offset = int(2 * scale_factor)
-        # Use a darker shadow for lower opacity
-        shadow_color = (0, 0, 0) if opacity > 0.7 else (50, 50, 50)
-        draw.text(
-            (text_x + shadow_offset, text_y + shadow_offset),
-            text,
-            font=font,
-            fill=shadow_color
-        )
-    
-    # Apply typewriter effect if specified
-    if "typewriter" in effects and word_info and "start" in word_info and is_active:
-        chars_per_second = TYPOGRAPHY_EFFECTS["typewriter"]["params"]["chars_per_second"]
-        word_start = word_info["start"]
-        time_in_word = current_time - word_start
-        
-        # Calculate how many characters should be visible
-        visible_chars = int(time_in_word * chars_per_second)
-        
-        if 0 < visible_chars < len(text):
-            # Show only the visible characters
-            text = text[:visible_chars]
-            # Recalculate text width for partial text
-            text_width, _ = get_text_size(draw, text, font)
-    
-    # Apply opacity to text color
-    if opacity < 1.0:
-        # Blend with white for text
-        r, g, b = text_color[:3]
-        r = int(r + (255 - r) * (1 - opacity))
-        g = int(g + (255 - g) * (1 - opacity))
-        b = int(b + (255 - b) * (1 - opacity))
-        text_color = (r, g, b)
     
     # Draw the text
-    draw.text(
-        (text_x, text_y),
-        text,
-        font=font,
-        fill=text_color[:3] if len(text_color) > 3 else text_color
-    )
+    draw.text((x_position, y_position), text, font=font, fill=text_color)
     
-    # Convert back to numpy array
-    return np.array(frame_pil)
+    # Composite the text overlay with the original frame
+    result = Image.alpha_composite(frame_pil, text_overlay)
+    
+    # Convert back to RGB for compatibility with video frames
+    result = result.convert('RGB')
+    
+    # Convert back to numpy array and ensure correct format
+    result_array = np.array(result)
+    return result_array
+
+def add_caption_to_frame(frame, text, word_info, current_time, style, effect_params=None):
+    """Add caption to a single video frame with current word timing"""
+    try:
+        # Skip if no text or empty text
+        if not text or not text.strip():
+            return frame
+            
+        # Call make_frame_with_text and pass only the parameters it accepts
+        return make_frame_with_text(
+            frame_img=frame,
+            text=text,
+            words_with_times=word_info.get("words_with_times", []) if word_info else [],
+            current_time=current_time,
+            style=style,
+            effect_params=effect_params
+        )
+    except Exception as e:
+        print(f"Error in add_caption_to_frame: {e}")
+        return frame
 
 @error_handler
 def add_captions_to_video(video_path, output_path=None, style_name="tiktok", model_size="base", engine="auto", max_duration=None, custom_style=None):
@@ -953,7 +771,7 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
                     print(f"  {i}: {time_point:.2f}s - '{text}' (word: None)")
             
             # Create a function that returns the frame with text overlay at the given time
-            def add_caption_to_frame(frame_img, t):
+            def create_caption_frame(frame_img, t):
                 # Find the currently active word and text to display
                 current_text = ""
                 current_word_info = None
@@ -985,24 +803,23 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
                         print(f"DEBUG: Using first animation entry for time 0: '{current_text}'")
                     
                     if current_text:
-                        return make_frame_with_text(
+                        return add_caption_to_frame(
                             frame_img, 
                             current_text,
-                            style, 
-                            word_info=current_word_info, 
-                            current_time=t,
-                            is_active=is_active
+                            current_word_info, 
+                            t,
+                            style
                         )
                     return frame_img
                 except Exception as e:
-                    print(f"Error in add_caption_to_frame: {str(e)}")
+                    print(f"Error in create_caption_frame: {str(e)}")
                     return frame_img
             
             # Apply the text overlay to the video
             print("Adding animated captions...")
             
             # Apply the function to each frame
-            captioned_video = video.fl(lambda gf, t: add_caption_to_frame(gf(t), t))
+            captioned_video = video.fl(lambda gf, t: create_caption_frame(gf(t), t))
             
         else:
             # For segment-by-segment captions (not word-by-word)
@@ -1033,7 +850,13 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
                     text = subtitle_text
                 
                 if text:
-                    return make_frame_with_text(frame, text, style, current_time=t)
+                    return add_caption_to_frame(
+                        frame,
+                        text,
+                        None,
+                        t,
+                        style
+                    )
                 return frame
             
             # Apply the text overlay to the video
