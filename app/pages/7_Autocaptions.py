@@ -206,6 +206,53 @@ def main():
             )
             st.session_state.autocaptions["selected_style"] = selected_style
             
+            # Advanced styles section
+            st.markdown("### Advanced Typography")
+            st.write("These styles provide more eye-catching caption effects:")
+            
+            # Create radio buttons for advanced style categories
+            advanced_style_category = st.radio(
+                "Advanced Style Category:",
+                ["None", "Kinetic", "Audio Reactive", "Character Animation"],
+                key="advanced_style_category"
+            )
+            
+            # Show specific style options based on category
+            if advanced_style_category == "Kinetic":
+                st.info("Words move independently with unique animations for a dynamic feel.")
+                if st.button("Apply Kinetic Style", key="apply_kinetic"):
+                    st.session_state.autocaptions["selected_style"] = "kinetic"
+                    # Add success message
+                    st.success("✅ Kinetic typography style applied! You can also select additional effects from the Typography Effects section below.")
+                    
+            elif advanced_style_category == "Audio Reactive":
+                st.info("Text scales and glows in response to audio levels for an immersive effect.")
+                if st.button("Apply Audio Reactive Style", key="apply_audio"):
+                    st.session_state.autocaptions["selected_style"] = "audio_pulse"
+                    # Add success message
+                    st.success("✅ Audio reactive style applied! You can also select additional effects from the Typography Effects section below.")
+                    
+            elif advanced_style_category == "Character Animation":
+                st.info("Individual characters animate with eye-catching effects.")
+                char_effect = st.selectbox(
+                    "Animation Type:",
+                    ["Drop In", "Fade In", "Spin In"],
+                    key="char_effect"
+                )
+                
+                if char_effect == "Drop In" and st.button("Apply Drop In Style"):
+                    st.session_state.autocaptions["selected_style"] = "drop_in"
+                    # Add success message
+                    st.success("✅ Character Drop In style applied!")
+                elif char_effect == "Fade In" and st.button("Apply Fade In Style"):
+                    st.session_state.autocaptions["selected_style"] = "fade_in"
+                    # Add success message
+                    st.success("✅ Character Fade In style applied!")
+                elif char_effect == "Spin In" and st.button("Apply Spin In Style"):
+                    st.session_state.autocaptions["selected_style"] = "spin_in"
+                    # Add success message
+                    st.success("✅ Character Spin In style applied!")
+            
             # Get available transcription engines
             engines = get_available_transcription_engines()
             engine_names = {
@@ -278,6 +325,13 @@ def main():
             st.session_state.autocaptions["typography_effects"] = [
                 effect for effect, selected in effect_checkboxes.items() if selected
             ]
+            
+            # Display currently selected typography effects
+            selected_effects = st.session_state.autocaptions.get("typography_effects", [])
+            if selected_effects:
+                st.success(f"Selected typography effects: {', '.join([e.replace('_', ' ').title() for e in selected_effects])}")
+            else:
+                st.info("No typography effects selected. Check options above to add visual effects to your captions.")
         
         with col2:
             # Display style preview and details
@@ -401,8 +455,40 @@ def main():
                             try:
                                 from utils.video.captions import CAPTION_STYLES
                                 base_style = CAPTION_STYLES.get(style_name, {}).copy()
-                                base_style["typography_effects"] = selected_effects
+                                
+                                # Ensure we don't lose any existing effects if this style already has them
+                                existing_effects = base_style.get("typography_effects", [])
+                                
+                                # Combine existing style-specific effects with user-selected effects
+                                all_effects = list(set(existing_effects + selected_effects))
+                                
+                                # Update the style with all effects
+                                base_style["typography_effects"] = all_effects
+                                
+                                # Set additional parameters for specific effects if needed
+                                if "audio_reactive" in all_effects:
+                                    # Make sure to include this effect even if the style is different
+                                    if style_name != "audio_pulse":
+                                        print("Adding audio reactive effect to custom style")
+                                
+                                if "kinetic_typography" in all_effects:
+                                    # Make sure to include this effect even if the style is different
+                                    if style_name != "kinetic":
+                                        print("Adding kinetic typography effect to custom style")
+                                
+                                if "character_animation" in all_effects:
+                                    # If a character animation is selected, make sure the character_effect is set
+                                    if "character_effect" not in base_style:
+                                        # Default to fade_in if not specified
+                                        base_style["character_effect"] = "fade_in"
+                                        print("Set default character effect to fade_in")
+                                
+                                # Use this as our custom style
                                 custom_style = base_style
+                                
+                                # Log the effects being used
+                                print(f"Using custom style with effects: {all_effects}")
+                                
                             except ImportError:
                                 st.warning("Could not load base styles, using selected style without custom effects")
                         

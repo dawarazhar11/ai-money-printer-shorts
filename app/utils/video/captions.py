@@ -50,6 +50,28 @@ except ImportError as e:
     print(f"❌ Error importing caption dependencies: {str(e)}")
     print("Please run the dependencies installation to use caption features")
 
+# Check if required dependencies are available
+DEPENDENCIES_AVAILABLE = True
+try:
+    import numpy as np
+    import moviepy.editor as mp
+    from PIL import Image, ImageDraw, ImageFont
+    # Import typography effects module
+    try:
+        from utils.video.typography_effects_pillow import make_frame_with_typography_effects
+        TYPOGRAPHY_EFFECTS_AVAILABLE = True
+    except ImportError:
+        TYPOGRAPHY_EFFECTS_AVAILABLE = False
+        
+    # Import advanced typography effects module
+    try:
+        from utils.video.advanced_typography import make_frame_with_advanced_typography
+        ADVANCED_TYPOGRAPHY_AVAILABLE = True
+    except ImportError:
+        ADVANCED_TYPOGRAPHY_AVAILABLE = False
+except ImportError:
+    DEPENDENCIES_AVAILABLE = False
+
 # Helper function to get text size compatible with all Pillow versions
 def get_text_size(draw, text, font):
     """
@@ -365,6 +387,16 @@ TYPOGRAPHY_EFFECTS = {
     }
 }
 
+# Add advanced typography effects
+ADVANCED_TYPOGRAPHY_EFFECTS = {
+    "kinetic_typography": {"description": "Words move independently with unique animations"},
+    "audio_reactive": {"description": "Text reacts to audio levels in the video"},
+    "character_animation": {"description": "Characters animate individually with effects like drop-in, fade-in, and spin-in"}
+}
+
+# Update typography effects dictionary with advanced effects
+TYPOGRAPHY_EFFECTS.update(ADVANCED_TYPOGRAPHY_EFFECTS)
+
 # Update the caption styles to include typography effects
 CAPTION_STYLES.update({
     "dynamic": {
@@ -420,6 +452,83 @@ CAPTION_STYLES.update({
         "typography_effects": ["typewriter"]  # List of effects to apply
     }
 })
+
+# Add new advanced caption styles
+CAPTION_STYLES.update({
+    "kinetic": {
+        "font": "Arial-Bold.ttf",
+        "font_size": 42,
+        "text_color": (255, 255, 255),  # White
+        "highlight_color": None,  # No background
+        "highlight_padding": 15,
+        "position": "center",
+        "align": "center",
+        "shadow": True,
+        "animate": True,
+        "word_by_word": True,
+        "typography_effects": ["kinetic_typography"]  # Use kinetic typography effect
+    },
+    "audio_pulse": {
+        "font": "Arial-Bold.ttf",
+        "font_size": 42,
+        "text_color": (255, 255, 255),  # White
+        "highlight_color": (0, 0, 0, 150),  # Semi-transparent black
+        "highlight_padding": 15,
+        "position": "bottom",
+        "align": "center",
+        "shadow": True,
+        "animate": True,
+        "word_by_word": True,
+        "typography_effects": ["audio_reactive"]  # Use audio-reactive effect
+    },
+    "drop_in": {
+        "font": "Arial-Bold.ttf",
+        "font_size": 42,
+        "text_color": (255, 255, 255),  # White
+        "highlight_color": (0, 0, 0, 180),  # Semi-transparent black
+        "highlight_padding": 15,
+        "position": "bottom",
+        "align": "center",
+        "shadow": True,
+        "animate": True,
+        "word_by_word": True,
+        "typography_effects": ["character_animation"],  # Use character animation effect
+        "character_effect": "drop_in"  # Specify the character animation type
+    },
+    "fade_in": {
+        "font": "Arial-Bold.ttf",
+        "font_size": 42,
+        "text_color": (255, 255, 255),  # White
+        "highlight_color": (0, 0, 0, 180),  # Semi-transparent black
+        "highlight_padding": 15,
+        "position": "bottom",
+        "align": "center",
+        "shadow": True,
+        "animate": True,
+        "word_by_word": True,
+        "typography_effects": ["character_animation"],  # Use character animation effect
+        "character_effect": "fade_in"  # Specify the character animation type
+    },
+    "spin_in": {
+        "font": "Arial-Bold.ttf",
+        "font_size": 42,
+        "text_color": (255, 255, 255),  # White
+        "highlight_color": None,  # No background
+        "highlight_padding": 15,
+        "position": "center",
+        "align": "center",
+        "shadow": True,
+        "animate": True,
+        "word_by_word": True,
+        "typography_effects": ["character_animation"],  # Use character animation effect
+        "character_effect": "spin_in"  # Specify the character animation type
+    }
+})
+
+# Also add typography effects to some existing styles
+CAPTION_STYLES["tiktok"]["typography_effects"] = ["fade"]
+CAPTION_STYLES["modern_bold"]["typography_effects"] = ["scale"]
+CAPTION_STYLES["social"]["typography_effects"] = ["fade", "color_shift"]
 
 def get_system_font(font_name):
     """Get a system font or default to Arial"""
@@ -493,6 +602,48 @@ def make_frame_with_text(frame_img, text, words_with_times, current_time, style,
     # Skip if no text
     if not text or not text.strip():
         return frame_img
+    
+    # Check if we should use advanced typography effects from style
+    typography_effects = style.get("typography_effects", [])
+    if typography_effects:
+        try:
+            # Try to import advanced typography module
+            from utils.video.advanced_typography import (
+                make_frame_with_advanced_typography,
+                apply_kinetic_typography,
+                apply_audio_reactive_text,
+                apply_character_animation
+            )
+            
+            # Get font path
+            font_path = get_system_font(style.get("font", "Arial Bold.ttf"))
+            
+            # Get or compute font size
+            font_size = style.get("font_size", 40)
+            
+            # Get position
+            position = style.get("position", "bottom")
+            
+            # Determine audio level (if needed)
+            audio_level = None
+            if "audio_reactive" in typography_effects and effect_params and "audio_level" in effect_params:
+                audio_level = effect_params.get("audio_level", 0.5)
+            
+            # Apply advanced typography effects
+            return make_frame_with_advanced_typography(
+                frame=frame_img,
+                text=text,
+                font_path=font_path,
+                font_size=font_size,
+                current_time=current_time,
+                word_timing=words_with_times,
+                effects=typography_effects,
+                style=style,
+                audio_data=audio_level
+            )
+        except ImportError as e:
+            print(f"WARNING: Advanced typography module not available: {e}")
+            # Fall back to standard text rendering
     
     # Ensure frame_img is a numpy array
     try:
@@ -662,10 +813,16 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
         # Get caption style
         if custom_style:
             style = custom_style
+            print(f"DEBUG: Using custom style with keys: {list(style.keys())}")
+            if "typography_effects" in style:
+                print(f"DEBUG: Custom style has typography effects: {style['typography_effects']}")
         elif style_name not in CAPTION_STYLES:
             return {"status": "error", "message": f"Style '{style_name}' not found. Available styles: {', '.join(CAPTION_STYLES.keys())}"}
         else:
             style = CAPTION_STYLES[style_name]
+            print(f"DEBUG: Using predefined style '{style_name}' with keys: {list(style.keys())}")
+            if "typography_effects" in style:
+                print(f"DEBUG: Style has typography effects: {style['typography_effects']}")
         
         # Load the video
         print(f"Loading video: {video_path}")
@@ -920,6 +1077,28 @@ def get_available_caption_styles():
     return {name: {k: v for k, v in style.items() 
                   if k not in ['font']}  # Exclude font path for cleaner output
             for name, style in CAPTION_STYLES.items()}
+
+def get_caption_style(style_name=None, custom_style=None):
+    """
+    Get caption style by name or custom parameters
+    
+    Args:
+        style_name: Name of caption style
+        custom_style: Custom style parameters
+        
+    Returns:
+        dict: Caption style parameters
+    """
+    # Use custom style if provided
+    if custom_style is not None:
+        return custom_style
+    
+    # Use default style if no style name provided
+    if style_name is None or style_name not in CAPTION_STYLES:
+        return CAPTION_STYLES["tiktok"]
+    
+    # Return the style
+    return CAPTION_STYLES[style_name]
 
 if __name__ == "__main__":
     # Simple command-line interface for testing
