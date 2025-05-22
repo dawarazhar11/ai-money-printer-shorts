@@ -420,7 +420,7 @@ if st.session_state.ollama_models:
                 status_text.empty()
                 
                 # Save prompts to session state and file
-                save_broll_prompts(prompts, broll_type)
+                save_broll_prompts(prompts, st.session_state.broll_type)
                 st.session_state.generating_prompts = False
                 st.success("All prompts generated successfully!")
                 st.rerun()
@@ -640,7 +640,7 @@ if st.button("Generate Simple Prompts Offline", use_container_width=True):
         status_text.empty()
         
         # Save prompts to session state and file
-        save_broll_prompts(prompts, broll_type)
+        save_broll_prompts(prompts, st.session_state.broll_type)
         st.success("Cinematic prompts generated successfully!")
         st.rerun()
     else:
