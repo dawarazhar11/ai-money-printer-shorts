@@ -866,7 +866,19 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
             return transcription
         
         words = transcription["words"]
-        print("DEBUG: Transcribed words:", words)
+        print(f"DEBUG: Transcription returned {len(words)} words")
+        
+        # If no words were transcribed, create a fallback caption
+        if not words:
+            print("WARNING: No words found in transcription. Creating a fallback caption.")
+            # Create a fallback word that covers the entire video duration
+            fallback_word = {
+                "word": "No speech detected",
+                "start": 0,
+                "end": video.duration
+            }
+            words = [fallback_word]
+            print(f"DEBUG: Created fallback caption covering 0 to {video.duration} seconds")
         
         # For word-by-word animation
         if style["word_by_word"] and style["animate"]:
