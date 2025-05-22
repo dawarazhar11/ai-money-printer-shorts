@@ -1661,11 +1661,22 @@ with col2:
         st.warning("⚠️ **IMPORTANT**: If you still see old IDs below, please clear your browser cache and refresh the page.")
         
         # Completely new implementation using unique IDs
-        broll_ids = {
-            "segment_0": st.session_state.broll_fetch_ids.get("segment_0", "ca26f439-3be6-4897-9e8a-d56448f4bb9a"),
-            "segment_1": st.session_state.broll_fetch_ids.get("segment_1", "15027251-6c76-4aee-b5d1-adddfa591257"), 
-            "segment_2": st.session_state.broll_fetch_ids.get("segment_2", "8f34773a-a113-494b-be8a-e5ecd241a8a4")
+        broll_ids = {}
+        # Default IDs for the first 3 segments
+        default_ids = {
+            "segment_0": "ca26f439-3be6-4897-9e8a-d56448f4bb9a",
+            "segment_1": "15027251-6c76-4aee-b5d1-adddfa591257", 
+            "segment_2": "8f34773a-a113-494b-be8a-e5ecd241a8a4"
         }
+        
+        # Ensure broll_ids has entries for all segments
+        for i, segment in enumerate(broll_segments):
+            segment_id = f"segment_{i}"
+            # First try to get from session state, then from defaults, then empty string
+            broll_ids[segment_id] = st.session_state.broll_fetch_ids.get(
+                segment_id, 
+                default_ids.get(segment_id, "")
+            )
         
         # Use current timestamp for truly unique keys
         timestamp = int(time.time())
