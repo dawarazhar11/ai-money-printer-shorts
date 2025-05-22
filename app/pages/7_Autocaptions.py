@@ -492,12 +492,13 @@ def main():
                         if "center" == position:
                             position_style = "top: 50%; left: 50%; transform: translate(-50%, -50%);"
                 
-                # Create a realistic 16:9 video frame preview with sample content
+                # Create a realistic 9:16 vertical video frame preview (for short-form content)
                 st.markdown(f"""
                 <div style="
                     position: relative;
-                    width: 100%;
-                    padding-bottom: 56.25%; /* 16:9 aspect ratio */
+                    width: 60%;
+                    margin: 0 auto;
+                    padding-bottom: 177.78%; /* 9:16 aspect ratio (16/9 * 100 = 177.78) */
                     background-color: #222;
                     margin-top: 10px;
                     border-radius: 5px;
@@ -520,7 +521,7 @@ def main():
                         font-size: 24px;
                         font-family: Arial, sans-serif;
                     ">
-                        16:9 Video Frame
+                        9:16 Vertical Frame
                     </div>
                     
                     <!-- Resolution markers -->
@@ -581,17 +582,21 @@ def main():
             # HTML/CSS for preview
             st.markdown(f"""
             <div style="
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                width: 100%;
-                height: 100px;
+                position: relative;
+                width: 60%;
+                margin: 0 auto;
+                padding-bottom: 177.78%; /* 9:16 aspect ratio */
                 background-color: #000;
                 margin-top: 10px;
-                padding: 10px;
+                padding: 0;
                 border-radius: 5px;
+                overflow: hidden;
             ">
                 <div style="
+                    position: absolute;
+                    bottom: 20px;
+                    left: 50%;
+                    transform: translateX(-50%);
                     color: {sample_color};
                     background-color: {bg_color};
                     padding: {padding};
