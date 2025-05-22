@@ -517,10 +517,10 @@ def assemble_video(sequence, target_resolution=(1080, 1920), output_dir=None, pr
                             
                             # Mark this segment as used
                             used_audio_segments.add(segment_id)
-                            
+                
                             # Update current audio position
                             current_audio_position += aroll_audio.duration
-                            
+                
                         except Exception as e:
                             print(f"Error applying A-Roll audio to B-Roll: {str(e)}")
                             # Fallback: Try loading A-Roll directly to extract audio
