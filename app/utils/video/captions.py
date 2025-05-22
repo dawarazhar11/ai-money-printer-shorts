@@ -456,11 +456,23 @@ def get_system_font(font_name):
                 for font_file in font_options[font_name]:
                     font_path = os.path.join(font_dir, font_file)
                     if os.path.exists(font_path):
+                        print(f"DEBUG: Found system font: {font_path}")
                         return font_path
     
     # Default font fallbacks by platform
     if sys.platform == "darwin":  # macOS
-        return "/System/Library/Fonts/SFNS.ttf"  # San Francisco
+        fallbacks = [
+            "/System/Library/Fonts/SFNS.ttf",  # San Francisco
+            "/System/Library/Fonts/Helvetica.ttc",
+            "/System/Library/Fonts/Geneva.ttf",
+            "/System/Library/Fonts/HelveticaNeue.ttc",
+            "/Library/Fonts/Arial.ttf"
+        ]
+        for fallback in fallbacks:
+            if os.path.exists(fallback):
+                print(f"DEBUG: Using fallback macOS font: {fallback}")
+                return fallback
+        return "/System/Library/Fonts/SFNS.ttf"  # Default fallback even if it doesn't exist
     elif sys.platform == "win32":  # Windows
         return "C:\\Windows\\Fonts\\arial.ttf"  # Arial
     else:  # Linux and others
@@ -720,29 +732,38 @@ def make_frame_with_text(frame, text, style, word_info=None, current_time=0, is_
     from PIL import Image
     import numpy as np
     
-    # Convert MoviePy frame to PIL Image
-    if callable(frame):
-        frame = frame(current_time)
-    # Ensure frame is a numpy array
-    if not isinstance(frame, np.ndarray):
-        print(f"Warning: frame is not a numpy array, but {type(frame)}")
-        return frame
-    frame_img = Image.fromarray(frame)
-    # Debug: print text being drawn
-    print(f"DEBUG: Drawing text '{text}' at time {current_time}")
-    # Apply typography effects if style has them, otherwise fall back to simple text
-    if "typography_effects" in style and style["typography_effects"]:
-        result = apply_typography_effects(frame_img, text, style, word_info, current_time, is_active)
-    else:
-        result = make_simple_frame_with_text(frame_img, text, style)
-    # Debug: save the first frame
-    if int(current_time) == 0:
-        try:
-            result.save("debug_caption_frame.png")
-            print("DEBUG: Saved debug_caption_frame.png")
-        except Exception as e:
-            print(f"DEBUG: Could not save debug frame: {e}")
-    return result
+    try:
+        # Convert MoviePy frame to PIL Image
+        if callable(frame):
+            frame = frame(current_time)
+        # Ensure frame is a numpy array
+        if not isinstance(frame, np.ndarray):
+            print(f"Warning: frame is not a numpy array, but {type(frame)}")
+            return frame
+        frame_img = Image.fromarray(frame)
+        # Debug: print text being drawn
+        print(f"DEBUG: Drawing text '{text}' at time {current_time}")
+        # Apply typography effects if style has them, otherwise fall back to simple text
+        if "typography_effects" in style and style["typography_effects"]:
+            result = apply_typography_effects(frame_img, text, style, word_info, current_time, is_active)
+        else:
+            result = make_simple_frame_with_text(frame_img, text, style)
+        # Debug: save the first frame
+        if int(current_time) == 0:
+            try:
+                result.save("debug_caption_frame.png")
+                print("DEBUG: Saved debug_caption_frame.png")
+            except Exception as e:
+                print(f"DEBUG: Could not save debug frame: {e}")
+        return np.array(result.convert('RGB'))
+    except Exception as e:
+        print(f"ERROR in make_frame_with_text: {e}")
+        # Return the original frame on error
+        if isinstance(frame, np.ndarray):
+            return frame
+        elif callable(frame):
+            return frame(current_time)
+        return np.zeros((720, 1280, 3), dtype=np.uint8)  # Black frame as last resort
 
 # Rename the original function for backward compatibility
 def make_simple_frame_with_text(frame_img, text, style):
@@ -896,11 +917,24 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
                 animation_data.append((0, "", None))
                 animation_data.append((video.duration, "", None))
             else:
+                # Sort words by start time to ensure proper sequence
+                words.sort(key=lambda w: w["start"])
+                
                 # Process all words in transcript
                 for i, word in enumerate(words):
                     # Debug for first 5 words
                     if i < 5:
                         print(f"DEBUG: Processing word {i}: '{word['word']}' ({word['start']:.2f}s - {word['end']:.2f}s)")
+                    
+                    # Make sure start time is not before the last end time (avoid overlaps)
+                    start_time = max(word["start"], last_end_time)
+                    end_time = max(word["end"], start_time + 0.1)  # Ensure minimum duration
+                    
+                    # If there's a gap between the last end time and this start time, add empty text
+                    if start_time > last_end_time + 0.1 and i > 0:
+                        animation_data.append((last_end_time, "", None))
+                        animation_data.append((start_time, "", None))
+                        current_words = []  # Reset current words for a fresh segment
                     
                     # Add this word to current words list and segment
                     current_words.append(word["word"])
@@ -917,17 +951,21 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
                     text = " ".join(display_words)
                     
                     # Add entry at the start time of this word
-                    animation_data.append((word["start"], text, word))
+                    animation_data.append((start_time, text, word))
+                    
+                    # Update the last end time
+                    last_end_time = end_time
                     
                     # If at the end of the segment or last word, add a blank entry after a pause
                     if len(current_segment) >= 7 or i == len(words) - 1:
                         # Stay visible for a bit after the word ends
-                        stay_visible = min(0.5, word["end"] - word["start"])
-                        animation_data.append((word["end"] + stay_visible, "", None))
-                        last_end_time = word["end"] + stay_visible
+                        stay_visible = min(0.5, end_time - start_time)
+                        animation_data.append((end_time + stay_visible, "", None))
+                        last_end_time = end_time + stay_visible
                 
                 # Ensure we cover the full video duration
                 if video.duration > last_end_time:
+                    animation_data.append((last_end_time, "", None))
                     animation_data.append((video.duration, "", None))
             
             # Debug the first few animation data entries
@@ -953,17 +991,22 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
                         for i, (time_point, text, word_info) in enumerate(animation_data[:5]):
                             print(f"DEBUG:   Entry {i}: time={time_point}, text='{text}'")
                     
-                    # Find the appropriate text for this time
+                    # Loop through all animation entries to find the one that contains the current time
+                    # Find the last entry where time_point <= t
+                    matching_index = -1
                     for i, (time_point, text, word_info) in enumerate(animation_data):
-                        if time_point > t:
-                            if i > 0:
-                                # Use the previous text/word
-                                current_text = animation_data[i-1][1]
-                                current_word_info = animation_data[i-1][2]
-                                is_active = True
-                                if t < 0.5:  # Only debug early frames
-                                    print(f"DEBUG: Found text for time {t}: '{current_text}'")
+                        if time_point <= t:
+                            matching_index = i
+                        else:
                             break
+                    
+                    # If we found a matching index, use that entry
+                    if matching_index >= 0:
+                        current_text = animation_data[matching_index][1]
+                        current_word_info = animation_data[matching_index][2]
+                        is_active = True
+                        if t < 0.5:  # Only debug early frames
+                            print(f"DEBUG: Found text for time {t}: '{current_text}' at index {matching_index}")
                     
                     # Special case for first frame: 
                     # If we're at time 0 and the first entry in animation_data is also at time 0
