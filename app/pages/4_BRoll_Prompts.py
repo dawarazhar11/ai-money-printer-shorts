@@ -109,7 +109,7 @@ if "script_theme" not in st.session_state:
 if "broll_prompts" not in st.session_state:
     st.session_state.broll_prompts = {}
 if "broll_type" not in st.session_state:
-    st.session_state.broll_type = "mixed"
+    st.session_state.broll_type = "video"
 if "ollama_models" not in st.session_state:
     st.session_state.ollama_models = []
 if "generating_prompts" not in st.session_state:
@@ -316,9 +316,15 @@ st.info(f"Current theme: **{st.session_state.script_theme}**")
 broll_type = st.radio(
     "Select B-Roll Type:",
     ["Video", "Image"],
-    index=0 if st.session_state.broll_type == "video" else 1,
+    index=0 if st.session_state.broll_type.lower() == "video" else 1,
     key="broll_type_selector"
 )
+
+# Update session state with the selected B-Roll type (store in lowercase)
+st.session_state.broll_type = broll_type.lower()
+
+# Show debug info about the selected type
+st.info(f"Selected B-Roll type: **{broll_type}** (stored as '{st.session_state.broll_type}')")
 
 # Show default B-roll IDs
 with st.expander("Default B-Roll IDs (Use these for quick assembly)", expanded=False):
@@ -380,11 +386,14 @@ if st.session_state.ollama_models:
                     
                     # Determine if we should generate video or image prompt based on broll_type
                     is_video = False
-                    if broll_type == "videos":
+                    if st.session_state.broll_type.lower() == "video":
                         is_video = True
-                    elif broll_type == "mixed":
+                    elif st.session_state.broll_type == "mixed":
                         # Alternate between video and image for mixed type
                         is_video = (i % 2 == 0)
+                    
+                    # Print debug information about the content type
+                    print(f"Generating {i+1}/{len(broll_segments)} as {'video' if is_video else 'image'} (broll_type: {st.session_state.broll_type})")
                     
                     # Generate the prompt using the current model from session state
                     prompt = generate_prompt_with_ollama(
@@ -445,12 +454,12 @@ if "prompts" in st.session_state.broll_prompts and st.session_state.broll_prompt
                 with content_col1:
                     st.markdown(f"**Content Type:** {content_type}")
                 with content_col2:
-                    if broll_type == "mixed":
+                    if st.session_state.broll_type == "mixed":
                         is_video = st.checkbox("Generate as video", 
                                              value=prompt_data.get("is_video", False),
                                              key=f"is_video_{segment_id}")
                     else:
-                        is_video = True if broll_type == "videos" else False
+                        is_video = True if st.session_state.broll_type.lower() == "video" else False
                 
                 # Prompt text area
                 prompt = st.text_area(
@@ -501,7 +510,7 @@ if "prompts" in st.session_state.broll_prompts and st.session_state.broll_prompt
     
     # Save updated prompts
     if st.button("Save All Prompts", type="primary"):
-        save_broll_prompts(updated_prompts, broll_type)
+        save_broll_prompts(updated_prompts, st.session_state.broll_type)
         mark_step_complete("step_4")
         st.success("B-Roll prompts saved successfully!")
 
@@ -583,10 +592,13 @@ if st.button("Generate Simple Prompts Offline", use_container_width=True):
             
             # Determine if we should generate video or image prompt based on broll_type
             is_video = False
-            if broll_type == "videos":
+            if st.session_state.broll_type.lower() == "video":
                 is_video = True
-            elif broll_type == "mixed":
+            elif st.session_state.broll_type == "mixed":
                 is_video = (i % 2 == 0)
+            
+            # Print debug information about the content type
+            print(f"Offline generator: {i+1}/{len(broll_segments)} as {'video' if is_video else 'image'} (broll_type: {st.session_state.broll_type})")
             
             # Create a cinematic narrative prompt
             if is_video:
