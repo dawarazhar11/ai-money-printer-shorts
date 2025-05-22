@@ -114,6 +114,8 @@ if "ollama_models" not in st.session_state:
     st.session_state.ollama_models = []
 if "generating_prompts" not in st.session_state:
     st.session_state.generating_prompts = False
+if "selected_ollama_model" not in st.session_state:
+    st.session_state.selected_ollama_model = None
 
 # Function to get available Ollama models
 def get_ollama_models():
@@ -164,22 +166,34 @@ def save_broll_prompts(prompts, broll_type):
 # Function to generate prompt with Ollama - with improved error handling
 def generate_prompt_with_ollama(model, segment_text, theme, is_video=False):
     try:
+        # Print debug information about the model being used
+        print(f"Generating prompt using model: {model}")
+        
         # Create a thoughtful prompt for the LLM
         video_or_image = "video" if is_video else "image"
         resolution = settings.get("resolution", "1080x1920")  # Default to 9:16 ratio
         
         prompt_instructions = f"""
-        Create a detailed, high-quality {video_or_image} generation prompt based on this text: "{segment_text}"
+        Create a detailed, cinematic, and visually rich {video_or_image} generation prompt based on this text: "{segment_text}"
         
         The theme is: {theme}
         Target resolution: {resolution} (9:16 ratio)
         
         Your prompt should:
-        1. Be visually descriptive and detailed (lighting, color, mood, composition, style)
-        2. Follow professional prompt engineering best practices
-        3. Be optimized for {video_or_image} generation with {'Wan' if is_video else 'ComfyUI'}
-        4. Be 1-3 sentences maximum, using commas to separate concepts
-        5. NOT include negative prompts - I'll generate those separately
+        1. Create a vivid, detailed scene with a clear subject/focus
+        2. Include rich details about:
+           - Setting and environment
+           - Lighting, mood, and atmosphere
+           - Color palette and visual tone
+           - Camera angle, framing, and composition
+           - Subject positioning and activity
+           - Background elements and context
+        3. Tell a mini-story within the scene
+        4. Avoid generic terms like "4K" or "HD" (resolution is already defined)
+        5. Be 2-4 sentences maximum with descriptive, evocative language
+        
+        Here's an excellent example of the level of detail and storytelling I want:
+        "A large orange octopus is seen resting on the bottom of the ocean floor, blending in with the sandy and rocky terrain. Its tentacles are spread out around its body, and its eyes are closed. The octopus is unaware of a king crab that is crawling towards it from behind a rock, its claws raised and ready to attack. The scene is captured from a wide angle, showing the vastness and depth of the ocean. The water is clear and blue, with rays of sunlight filtering through."
         
         Return ONLY the prompt text, nothing else. No explanations, no "Prompt:" prefix, just the prompt itself.
         """
@@ -218,10 +232,10 @@ def generate_prompt_with_ollama(model, segment_text, theme, is_video=False):
                 time.sleep(1)  # Wait before retrying
                 
         # If we've exhausted retries, return a fallback prompt
-        return f"A {video_or_image} about {theme} featuring {segment_text}"
+        return f"A detailed {video_or_image} showing {segment_text}, set in a {theme} environment with atmospheric lighting and rich visual elements."
     except Exception as e:
         st.error(f"Error generating prompt: {str(e)}")
-        return f"A {video_or_image} about {theme} featuring {segment_text}"
+        return f"A detailed {video_or_image} showing {segment_text}, set in a {theme} environment with atmospheric lighting and rich visual elements."
 
 # Function to generate negative prompts automatically - with improved error handling
 def generate_negative_prompt(model, prompt):
@@ -327,12 +341,23 @@ if "ollama_models" not in st.session_state or not st.session_state.ollama_models
         st.session_state.ollama_models = get_ollama_models()
 
 if st.session_state.ollama_models:
+    # Store previous selection to compare
+    previous_model = st.session_state.get("selected_ollama_model", None)
+    
+    # Display model selection dropdown
     selected_model = st.selectbox(
         "Select Ollama Model for Prompt Generation",
         options=st.session_state.ollama_models,
-        index=0 if st.session_state.ollama_models else None,
-        help="Choose an AI model to generate your B-Roll prompts"
+        index=st.session_state.ollama_models.index(previous_model) if previous_model in st.session_state.ollama_models else 0,
+        help="Choose an AI model to generate your B-Roll prompts",
+        key="model_selectbox"
     )
+    
+    # Store selected model in session state
+    st.session_state.selected_ollama_model = selected_model
+    
+    # Debug info about selected model
+    st.info(f"Using model: **{selected_model}**", icon="ℹ️")
     
     # Generate all prompts button
     generate_col1, generate_col2 = st.columns([2, 1])
@@ -346,6 +371,9 @@ if st.session_state.ollama_models:
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 
+                # Get current model from session state
+                current_model = st.session_state.selected_ollama_model
+                
                 for i, segment in enumerate(broll_segments):
                     segment_id = f"segment_{i}"
                     status_text.text(f"Generating prompt for segment {i+1} of {len(broll_segments)}...")
@@ -358,16 +386,16 @@ if st.session_state.ollama_models:
                         # Alternate between video and image for mixed type
                         is_video = (i % 2 == 0)
                     
-                    # Generate the prompt
+                    # Generate the prompt using the current model from session state
                     prompt = generate_prompt_with_ollama(
-                        selected_model, 
+                        current_model, 
                         segment["content"], 
                         st.session_state.script_theme,
                         is_video
                     )
                     
-                    # Generate negative prompt
-                    negative_prompt = generate_negative_prompt(selected_model, prompt)
+                    # Generate negative prompt using the same model
+                    negative_prompt = generate_negative_prompt(current_model, prompt)
                     
                     # Store both prompts
                     prompts[segment_id] = {
@@ -443,8 +471,14 @@ if "prompts" in st.session_state.broll_prompts and st.session_state.broll_prompt
                 # Regenerate single prompt button
                 if st.button("🔄 Regenerate Prompt", key=f"regen_{segment_id}"):
                     with st.spinner("Regenerating prompt..."):
+                        # Get current model from session state
+                        current_model = st.session_state.selected_ollama_model
+                        
+                        # Show which model is being used
+                        st.info(f"Using model: **{current_model}**", icon="ℹ️")
+                        
                         new_prompt = generate_prompt_with_ollama(
-                            selected_model, 
+                            current_model, 
                             segment["content"], 
                             st.session_state.script_theme,
                             is_video
@@ -452,7 +486,7 @@ if "prompts" in st.session_state.broll_prompts and st.session_state.broll_prompt
                         prompt = new_prompt
                         
                         # Generate new negative prompt
-                        new_negative = generate_negative_prompt(selected_model, new_prompt)
+                        new_negative = generate_negative_prompt(current_model, new_prompt)
                         negative_prompt = new_negative
                 
                 # Store updated prompt data
@@ -496,10 +530,35 @@ This doesn't require Ollama and works offline.
 
 if st.button("Generate Simple Prompts Offline", use_container_width=True):
     if broll_segments:
-        # Lists of elements to choose from for prompts
-        shot_types = ["Close-up", "Medium shot", "Wide angle", "Overhead view", "Side profile", "Tracking shot", "POV shot"]
-        visual_styles = ["cinematic", "documentary style", "professional", "elegant", "dramatic", "minimalist", "vibrant"]
-        lighting = ["soft natural light", "dramatic lighting", "studio lighting", "golden hour", "morning light", "blue hour"]
+        # More diverse lists of elements to choose from for prompts
+        shot_types = [
+            "Close-up", "Medium shot", "Wide angle", "Overhead view", "Side profile", 
+            "Low angle shot", "POV shot", "Tracking shot", "Dutch angle", "Aerial view"
+        ]
+        visual_styles = [
+            "cinematic", "documentary style", "professional", "elegant", "dramatic", 
+            "minimalist", "vibrant", "moody", "stylized", "naturalistic", "painterly"
+        ]
+        lighting = [
+            "soft natural light", "dramatic lighting", "studio lighting", "golden hour", 
+            "morning light", "blue hour", "backlit", "silhouette", "dappled light", 
+            "harsh midday sun", "warm evening glow", "cool moonlight"
+        ]
+        environments = [
+            "urban setting", "natural landscape", "indoor environment", "studio setting",
+            "coastal scene", "forest setting", "mountainous terrain", "desert landscape",
+            "underwater scene", "corporate environment", "rustic setting", "futuristic space"
+        ]
+        color_palettes = [
+            "warm earthy tones", "cool blues and greens", "vibrant contrasting colors",
+            "monochromatic palette", "pastel colors", "rich saturated colors",
+            "muted tones", "high contrast black and white", "complementary colors"
+        ]
+        storytelling_elements = [
+            "moment of tension", "peaceful scene", "action in progress", "emotional moment",
+            "before and after", "cause and effect", "unexpected juxtaposition",
+            "revealing detail", "symbolic imagery", "character interaction"
+        ]
         
         # Generate prompts
         prompts = {}
@@ -510,14 +569,17 @@ if st.button("Generate Simple Prompts Offline", use_container_width=True):
             segment_id = f"segment_{i}"
             status_text.text(f"Generating prompt for segment {i+1} of {len(broll_segments)}...")
             
-            # Extract keywords from content
-            content = segment["content"].lower()
-            keywords = [word for word in content.split() if len(word) > 3 and word not in {"with", "that", "this", "from", "there", "their", "they", "have", "about"}]
+            # Get content and theme
+            content = segment["content"]
+            theme = st.session_state.script_theme
             
-            # Select random elements
+            # Select random elements from each category
             shot = random.choice(shot_types)
             style = random.choice(visual_styles)
             light = random.choice(lighting)
+            environment = random.choice(environments)
+            colors = random.choice(color_palettes)
+            story_element = random.choice(storytelling_elements)
             
             # Determine if we should generate video or image prompt based on broll_type
             is_video = False
@@ -526,16 +588,31 @@ if st.button("Generate Simple Prompts Offline", use_container_width=True):
             elif broll_type == "mixed":
                 is_video = (i % 2 == 0)
             
-            # Create a basic prompt
+            # Create a cinematic narrative prompt
             if is_video:
-                motion_terms = ["slow motion", "timelapse", "panning shot", "moving camera", "smooth tracking"]
+                motion_terms = [
+                    "slow motion", "timelapse", "panning shot", "moving camera", 
+                    "smooth tracking", "dolly zoom", "steady cam", "crane shot",
+                    "aerial movement", "gentle motion", "dynamic camera movement"
+                ]
                 motion = random.choice(motion_terms)
-                prompt = f"{shot} of {content}. {style}, {light}, {motion}. Professional videography, high-quality footage."
+                
+                # Build a more detailed narrative prompt
+                story_context = f"A {shot.lower()} captures {content}. "
+                visual_details = f"The scene features {environment} with {light}, creating a {style} feel with {colors}. "
+                narrative_element = f"The {story_element} unfolds as the {motion} reveals important details. "
+                
+                prompt = story_context + visual_details + narrative_element
             else:
-                prompt = f"{shot} of {content}. {style}, {light}. Professional photography, high-quality image."
+                # Build a more detailed static image prompt
+                story_context = f"A {shot.lower()} depicts {content}. "
+                visual_details = f"Set in {environment} with {light}, the composition has a {style} quality with {colors}. "
+                narrative_element = f"The image captures a {story_element} that tells a story about the theme of {theme}. "
+                
+                prompt = story_context + visual_details + narrative_element
             
             # Create negative prompt
-            negative_prompt = "poor quality, blurry, distorted, ugly, unrealistic, deformed, low resolution, amateur, poorly composed, out of frame, pixelated, watermark, signature, text"
+            negative_prompt = "poor quality, blurry, distorted faces, bad anatomy, ugly, unrealistic, deformed, low resolution, amateur, poorly composed, out of frame, pixelated, watermark, signature, text, low contrast, dull colors, overexposed, underexposed"
             
             # Store both prompts
             prompts[segment_id] = {
@@ -552,7 +629,7 @@ if st.button("Generate Simple Prompts Offline", use_container_width=True):
         
         # Save prompts to session state and file
         save_broll_prompts(prompts, broll_type)
-        st.success("Simple prompts generated successfully!")
+        st.success("Cinematic prompts generated successfully!")
         st.rerun()
     else:
         st.warning("No B-Roll segments to generate prompts for.")

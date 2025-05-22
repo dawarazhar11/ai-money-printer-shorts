@@ -50,6 +50,8 @@ if "generating_script" not in st.session_state:
     st.session_state.generating_script = False
 if "ollama_models" not in st.session_state:
     st.session_state.ollama_models = []
+if "selected_ollama_model" not in st.session_state:
+    st.session_state.selected_ollama_model = None
 
 # Constants
 OLLAMA_API_URL = "http://100.115.243.42:11434/api"
@@ -156,6 +158,9 @@ def save_script_segments(script, segments, theme):
 # Function to generate B-Roll visual description with Ollama
 def generate_broll_description(model, preceding_content, following_content, theme):
     try:
+        # Print debug information about the model being used
+        print(f"Starting B-Roll description generation with model: {model}")
+        
         # Create a thoughtful prompt for the LLM
         prompt_instructions = f"""
         Create a detailed visual description for B-Roll footage based on this context:
@@ -369,12 +374,22 @@ col1, col2 = st.columns([2, 1])
 # If we have models, show dropdown and generate button
 if st.session_state.ollama_models:
     with col1:
+        # Store previous selection to compare
+        previous_model = st.session_state.get("selected_ollama_model", None)
+        
         selected_model = st.selectbox(
             "Select AI Model",
             options=st.session_state.ollama_models,
-            index=0 if st.session_state.ollama_models else None,
-            help="Choose an AI model to generate your script"
+            index=st.session_state.ollama_models.index(previous_model) if previous_model in st.session_state.ollama_models else 0,
+            help="Choose an AI model to generate your script",
+            key="model_selectbox_script"
         )
+        
+        # Store selected model in session state
+        st.session_state.selected_ollama_model = selected_model
+        
+        # Debug info about selected model
+        st.info(f"Using model: **{selected_model}**", icon="ℹ️")
     
     with col2:
         if st.button("🤖 Generate Script", use_container_width=True, disabled=not script_theme):
@@ -382,9 +397,13 @@ if st.session_state.ollama_models:
                 st.warning("Please enter a theme first")
             else:
                 st.session_state.generating_script = True
+                # Get current model from session state
+                current_model = st.session_state.selected_ollama_model
                 with st.spinner(f"Generating script about '{script_theme}'..."):
+                    # Print debug information
+                    print(f"Generating script using model: {current_model}")
                     generated_script = generate_script_with_ollama(
-                        selected_model, 
+                        current_model, 
                         script_theme, 
                         settings["video_duration"]
                     )
@@ -445,12 +464,22 @@ if st.session_state.ollama_models:
     with col1:
         # Only show model selection if not using local generator
         if not use_local_generator:
+            # Store previous selection to compare
+            previous_model = st.session_state.get("selected_ollama_model", None)
+            
             selected_model = st.selectbox(
                 "Select AI Model for B-Roll Descriptions",
                 options=st.session_state.ollama_models,
-                index=0 if st.session_state.ollama_models else None,
-                help="Choose an AI model to generate B-Roll visual descriptions"
+                index=st.session_state.ollama_models.index(previous_model) if previous_model in st.session_state.ollama_models else 0,
+                help="Choose an AI model to generate B-Roll visual descriptions",
+                key="model_selectbox_broll"
             )
+            
+            # Store selected model in session state
+            st.session_state.selected_ollama_model = selected_model
+            
+            # Debug info about selected model
+            st.info(f"Using model: **{selected_model}**", icon="ℹ️")
         else:
             st.info("Using local generator - no AI model needed")
             # Create a hidden placeholder for the selected_model variable
@@ -508,8 +537,12 @@ if st.session_state.ollama_models:
                                         script_theme
                                     )
                                 else:
+                                    # Get the model from session state
+                                    current_model = st.session_state.selected_ollama_model
+                                    # Print debug information
+                                    print(f"Generating individual B-Roll description using model: {current_model}")
                                     generated_description = generate_broll_description(
-                                        selected_model,
+                                        current_model,
                                         preceding_content,
                                         following_content,
                                         script_theme
@@ -787,10 +820,12 @@ if st.session_state.segments:
                                                 script_theme
                                             )
                                         else:
-                                            # Use the first available model
-                                            model = st.session_state.ollama_models[0]
+                                            # Get the model from session state
+                                            current_model = st.session_state.selected_ollama_model
+                                            # Print debug information
+                                            print(f"Generating individual B-Roll description using model: {current_model}")
                                             generated_description = generate_broll_description(
-                                                model,
+                                                current_model,
                                                 preceding_content,
                                                 following_content,
                                                 script_theme
