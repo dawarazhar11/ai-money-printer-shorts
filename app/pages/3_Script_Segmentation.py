@@ -131,22 +131,49 @@ def save_theme(theme):
 def load_saved_script():
     script_file = project_path / "script.json"
     if script_file.exists():
-        with open(script_file, "r") as f:
-            data = json.load(f)
-            st.session_state.script = data.get("full_script", "")
-            st.session_state.segments = data.get("segments", [])
-            st.session_state.script_theme = data.get("theme", "")
-            return True
+        try:
+            with open(script_file, "r") as f:
+                data = json.load(f)
+                
+                # Load the basic required fields
+                st.session_state.script = data.get("full_script", "")
+                st.session_state.segments = data.get("segments", [])
+                st.session_state.script_theme = data.get("theme", "")
+                
+                # Store the complete data in session state for preservation
+                if "script_data" not in st.session_state:
+                    st.session_state.script_data = {}
+                
+                # Update with all fields from the file
+                st.session_state.script_data = data
+                
+                return True
+        except Exception as e:
+            st.error(f"Error loading script: {str(e)}")
+            return False
     return False
 
 # Function to save script and segments
 def save_script_segments(script, segments, theme):
+    # Get existing data first if available
+    existing_data = {}
     script_file = project_path / "script.json"
+    if script_file.exists():
+        try:
+            with open(script_file, "r") as f:
+                existing_data = json.load(f)
+        except Exception:
+            pass
+    
+    # Create new data, preserving any fields that might exist in existing data
     data = {
+        **existing_data,  # Keep all existing fields
         "full_script": script,
         "segments": segments,
         "theme": theme
     }
+    
+    # Save to file
     with open(script_file, "w") as f:
         json.dump(data, f, indent=4)
     
@@ -602,10 +629,11 @@ def auto_segment_script(script_text, num_b_roll_segments):
     # Total segments = (num_b_roll_segments * 2) + 1
     total_segments = (num_b_roll_segments * 2) + 1
     
-    # Calculate how many sentences per A-Roll segment
-    # Note: B-Roll segments don't contain script content
-    aroll_segments_count = (total_segments + 1) // 2  # Ceiling division to ensure enough A-Roll segments
-    sentences_per_aroll = max(1, len(sentences) // aroll_segments_count)
+    # Calculate number of A-Roll segments
+    aroll_segments_count = num_b_roll_segments + 1
+    
+    # Calculate how many sentences per A-Roll segment, ensuring all sentences are distributed
+    sentences_per_aroll = len(sentences) / aroll_segments_count
     
     # Create segments
     segments = []
@@ -614,10 +642,23 @@ def auto_segment_script(script_text, num_b_roll_segments):
     for i in range(total_segments):
         if i % 2 == 0:
             # A-Roll segments (0, 2, 4, etc.)
-            end_idx = min(sentence_index + sentences_per_aroll, len(sentences))
-            segment_content = " ".join(sentences[sentence_index:end_idx]).strip()
+            # Calculate how many sentences to include in this segment
+            aroll_index = i // 2  # Which A-Roll segment is this (0, 1, 2, etc.)
+            
+            # For the last A-Roll segment, include all remaining sentences
+            if aroll_index == aroll_segments_count - 1:
+                segment_sentences = sentences[sentence_index:]
+            else:
+                # Calculate start and end indices for this segment
+                # Use ceiling for end_idx to avoid rounding errors
+                start_idx = sentence_index
+                end_idx = int(min((aroll_index + 1) * sentences_per_aroll, len(sentences)))
+                segment_sentences = sentences[start_idx:end_idx]
+                sentence_index = end_idx
+            
+            # Join sentences into content
+            segment_content = " ".join(segment_sentences).strip()
             segments.append({"type": "A-Roll", "content": segment_content})
-            sentence_index = end_idx
         else:
             # B-Roll segments (1, 3, 5, etc.)
             # Use a helpful placeholder for visual descriptions instead of script content
@@ -632,6 +673,11 @@ def auto_segment_script(script_text, num_b_roll_segments):
                 "type": "B-Roll", 
                 "content": broll_placeholder
             })
+    
+    # Verify that all sentences were included
+    total_sentences_in_segments = sum(len(re.split(r'(?<=[.!?])\s+', s["content"].strip())) for s in segments if s["type"] == "A-Roll")
+    if total_sentences_in_segments < len(sentences):
+        print(f"Warning: Not all sentences included. Original: {len(sentences)}, In segments: {total_sentences_in_segments}")
     
     return segments
 
@@ -875,10 +921,23 @@ if st.session_state.segments:
         if script_theme.strip() == "":
             st.error("Please enter a theme for your script before saving.")
         else:
+            # Get existing script data from session state
+            script_data = st.session_state.get("script_data", {})
+            
+            # Save script and segments, preserving existing data
             if save_script_segments(script_text, st.session_state.segments, script_theme):
+                # Update session state
+                st.session_state.script = script_text
                 st.session_state.script_theme = script_theme
+                
+                # Mark step as complete
                 mark_step_complete("step_2")
+                
+                # Success message
                 st.success("Script and segments saved successfully!")
+                
+                # Reload the saved script to ensure session state is fully updated
+                load_saved_script()
 else:
     if has_saved_script:
         st.info("Loaded previously saved script. You can make changes and save again.")
