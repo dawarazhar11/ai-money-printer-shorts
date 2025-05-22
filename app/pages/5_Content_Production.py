@@ -332,83 +332,45 @@ def prepare_comfyui_workflow(template_file, prompt, negative_prompt, resolution=
 
 # Function to submit job to ComfyUI
 def submit_comfyui_job(api_url, workflow):
+    """
+    Submit a job to ComfyUI
+    """
     try:
-        # Submit the workflow to /prompt endpoint
-        response = requests.post(
-            f"{api_url}/prompt",
-            json={"prompt": workflow}
-        )
+        # Use the correct ComfyUI server URL
+        api_url = "http://100.115.243.42:8000"
+        print(f"Submitting job to ComfyUI at: {api_url}")
         
+        response = requests.post(f"{api_url}/prompt", json=workflow, timeout=30)
         if response.status_code == 200:
-            data = response.json()
-            return data.get("prompt_id")
+            result = response.json()
+            print(f"Job submitted successfully. Response: {result}")
+            return result
         else:
-            st.error(f"Error submitting job: {response.status_code} - {response.text}")
+            print(f"Error submitting job. Status code: {response.status_code}")
             return None
     except Exception as e:
-        st.error(f"Error connecting to ComfyUI: {str(e)}")
+        print(f"Error submitting job: {str(e)}")
         return None
 
 # Function to check ComfyUI job status
 def check_comfyui_job_status(api_url, prompt_id):
+    """
+    Check the status of a ComfyUI job
+    """
     try:
-        response = requests.get(f"{api_url}/history/{prompt_id}")
+        # Use the correct ComfyUI server URL
+        api_url = "http://100.115.243.42:8000"
+        print(f"Checking job status at: {api_url}/history/{prompt_id}")
+        
+        response = requests.get(f"{api_url}/history/{prompt_id}", timeout=30)
         if response.status_code == 200:
-            data = response.json()
-            if prompt_id in data:
-                job_data = data[prompt_id]
-                
-                # Check for status information in new format
-                if "status" in job_data and isinstance(job_data["status"], dict):
-                    # Look for status_str field (newer ComfyUI API format)
-                    if "status_str" in job_data["status"]:
-                        status_str = job_data["status"]["status_str"]
-                        
-                        if status_str == "success":
-                            return {"status": "complete", "data": job_data.get("outputs", {})}
-                        elif status_str == "error":
-                            error_msg = "Unknown error"
-                            # Try to extract error message from messages
-                            if "messages" in job_data["status"]:
-                                for msg in job_data["status"]["messages"]:
-                                    if len(msg) >= 2 and msg[0] == "execution_error" and isinstance(msg[1], dict):
-                                        error_msg = msg[1].get("exception_message", error_msg)
-                                        break
-                            return {"status": "error", "message": error_msg}
-                        elif status_str == "processing":
-                            return {"status": "processing"}
-                        else:
-                            return {"status": status_str}
-                    
-                    # Look for completed flag
-                    if "completed" in job_data["status"]:
-                        if job_data["status"]["completed"] == True:
-                            return {"status": "complete", "data": job_data.get("outputs", {})}
-                    
-                    # Look for messages indicating success or error
-                    if "messages" in job_data["status"]:
-                        for message in job_data["status"]["messages"]:
-                            if len(message) >= 2:
-                                if message[0] == "execution_success":
-                                    return {"status": "complete", "data": job_data.get("outputs", {})}
-                                elif message[0] == "execution_error":
-                                    error_msg = "Unknown error"
-                                    if isinstance(message[1], dict):
-                                        error_msg = message[1].get("exception_message", error_msg)
-                                    return {"status": "error", "message": error_msg}
-                
-                # Fallback: Check if there are outputs
-                if "outputs" in job_data and job_data["outputs"]:
-                    return {"status": "complete", "data": job_data["outputs"]}
-                    
-                # Default to processing if we're unsure
-                return {"status": "processing"}
-            else:
-                return {"status": "not_found"}
+            return response.json()
         else:
-            return {"status": "error", "message": f"Error {response.status_code}: {response.text}"}
+            print(f"Error checking job status. Status code: {response.status_code}")
+            return None
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        print(f"Error checking job status: {str(e)}")
+        return None
 
 # Function to get file from ComfyUI node
 def get_comfyui_file(api_url, filename, node_id=""):
@@ -546,93 +508,89 @@ def fetch_comfyui_job_history(api_url, limit=20):
         return {"status": "error", "message": f"Error fetching job history: {str(e)}"}
 
 # Function to fetch content by ID from ComfyUI
-def fetch_comfyui_content_by_id(api_url, prompt_id):
+def fetch_comfyui_content_by_id(api_url, prompt_id, max_retries=3, retry_delay=5):
+    """
+    Fetch content by ID from ComfyUI with retry logic
+    """
+    # Use the correct ComfyUI server URL
+    api_url = "http://100.115.243.42:8000"
+    print(f"\n=== Fetching content for prompt_id: {prompt_id} ===")
+    print(f"API URL: {api_url}")
+    
+    def make_request(url, method='get', timeout=60, **kwargs):
+        """Helper function to make requests with retry logic"""
+        for attempt in range(max_retries):
+            try:
+                print(f"Attempt {attempt + 1}/{max_retries} for {url}")
+                if method.lower() == 'get':
+                    response = requests.get(url, timeout=timeout, **kwargs)
+                elif method.lower() == 'head':
+                    response = requests.head(url, timeout=timeout, **kwargs)
+                return response
+            except requests.exceptions.Timeout:
+                if attempt < max_retries - 1:
+                    print(f"Timeout on attempt {attempt + 1}, retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                else:
+                    raise
+            except requests.exceptions.ConnectionError:
+                if attempt < max_retries - 1:
+                    print(f"Connection error on attempt {attempt + 1}, retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                else:
+                    raise
+    
     try:
         # First check if the job exists in history
         history_url = f"{api_url}/history/{prompt_id}"
-        history_response = requests.get(history_url, timeout=30)  # Longer timeout
+        print(f"\n1. Checking history at: {history_url}")
+        
+        history_response = make_request(history_url, timeout=60)
+        print(f"History response status: {history_response.status_code}")
         
         if history_response.status_code != 200:
-            st.warning(f"Error fetching history: {history_response.status_code}. Server might be busy, try again later.")
-            return {"status": "error", "message": f"Error fetching history: {history_response.status_code}. Server might be busy."}
+            error_msg = f"Error fetching history: {history_response.status_code}. Server might be busy, try again later."
+            print(error_msg)
+            return {"status": "error", "message": error_msg}
             
         job_data = history_response.json()
+        print(f"Job data keys: {list(job_data.keys())}")
         
-        # Check if job data exists
         if prompt_id not in job_data:
-            st.warning(f"Prompt ID '{prompt_id}' not found in history. The job may have been deleted or hasn't been submitted yet.")
-            
-            # Try fallback to queue check
-            try:
-                queue_response = requests.get(f"{api_url}/queue", timeout=10)
-                if queue_response.status_code == 200:
-                    queue_data = queue_response.json()
-                    
-                    # Check if our job is in the queue
-                    in_queue = False
-                    queue_position = 0
-                    
-                    if "queue_running" in queue_data:
-                        for idx, item in enumerate(queue_data["queue_running"]):
-                            if item.get("prompt_id") == prompt_id:
-                                in_queue = True
-                                st.info(f"Job {prompt_id} is currently running!")
-                                return {"status": "processing", "message": "Job is currently running"}
-                    
-                    if "queue_pending" in queue_data:
-                        for idx, item in enumerate(queue_data["queue_pending"]):
-                            if item.get("prompt_id") == prompt_id:
-                                in_queue = True
-                                queue_position = idx + 1
-                                st.info(f"Job {prompt_id} is in queue at position {queue_position}")
-                                return {"status": "processing", "message": f"Job is in queue at position {queue_position}"}
-                    
-                    if not in_queue:
-                        st.error(f"Job {prompt_id} is not in the history or queue. It may have been deleted or never submitted.")
-                        return {"status": "error", "message": "Prompt ID not found in history or queue"}
-            except Exception as e:
-                st.error(f"Failed to check queue: {str(e)}")
-                
+            error_msg = f"Prompt ID '{prompt_id}' not found in history. The job may have been deleted or hasn't been submitted yet."
+            print(error_msg)
+            st.warning(error_msg)
             return {"status": "error", "message": "Prompt ID not found in history"}
             
         # Get the job data
         job_info = job_data[prompt_id]
+        print(f"\n2. Job info keys: {list(job_info.keys())}")
         
-        # Determine job status
-        job_status = "unknown"
-        if "status" in job_info and isinstance(job_info["status"], dict):
-            if "status_str" in job_info["status"]:
-                job_status = job_info["status"]["status_str"]
-            elif "completed" in job_info["status"] and job_info["status"]["completed"] == True:
-                job_status = "success"
-            elif "messages" in job_info["status"]:
-                for message in job_info["status"]["messages"]:
-                    if len(message) >= 2:
-                        if message[0] == "execution_success":
-                            job_status = "success"
-                            break
-                        elif message[0] == "execution_error":
-                            job_status = "error"
-                            break
-        
-        # Check if job completed successfully based on status or outputs
-        if job_status == "success" or ("outputs" in job_info and job_info["outputs"]):
-            outputs = job_info.get("outputs", {})
+        # Check if job has outputs
+        if "outputs" in job_info and job_info["outputs"]:
+            outputs = job_info["outputs"]
+            print(f"\n3. Output nodes: {list(outputs.keys())}")
             
-            # Extract the filename from the outputs
             # Iterate through output nodes to find image/video output
             for node_id, node_data in outputs.items():
+                print(f"\n4. Processing node: {node_id}")
+                print(f"Node data keys: {list(node_data.keys())}")
+                
+                # Check for images
                 if "images" in node_data:
-                    # Found images output
+                    print(f"Found {len(node_data['images'])} images")
                     for image_data in node_data["images"]:
                         filename = image_data["filename"]
                         file_type = image_data.get("type", "image")
+                        print(f"Processing image: {filename} (type: {file_type})")
                         
-                        # Download the file directly using the /view endpoint
+                        # Download the file
                         file_url = f"{api_url}/view?filename={filename}"
-                        content_response = requests.get(file_url, timeout=60)  # Longer timeout for file downloads
+                        print(f"Downloading from: {file_url}")
                         
+                        content_response = make_request(file_url, timeout=120)
                         if content_response.status_code == 200:
+                            print(f"Successfully downloaded image: {filename}")
                             return {
                                 "status": "success",
                                 "content": content_response.content,
@@ -640,72 +598,86 @@ def fetch_comfyui_content_by_id(api_url, prompt_id):
                                 "prompt_id": prompt_id,
                                 "type": file_type
                             }
-                # Check for video output (might have different structure)
-                elif "gifs" in node_data or "videos" in node_data:
-                    # Handle video outputs (usually in videos array)
-                    video_list = node_data.get("videos", node_data.get("gifs", []))
-                    if video_list:
-                        for video_data in video_list:
-                            filename = video_data.get("filename", "")
+                        else:
+                            print(f"Failed to download image. Status code: {content_response.status_code}")
+                
+                # Check for videos and other media files
+                for media_type in ["videos", "gifs", "mp4"]:
+                    if media_type in node_data:
+                        print(f"Found {len(node_data[media_type])} {media_type}")
+                        for media_item in node_data[media_type]:
+                            filename = media_item.get("filename", "")
                             if filename:
-                                # Download the video file
-                                file_url = f"{api_url}/view?filename={filename}"
-                                content_response = requests.get(file_url, timeout=120)  # Even longer timeout for video downloads
+                                # Determine actual file type from extension
+                                file_ext = os.path.splitext(filename)[1].lower()
+                                actual_type = "video" if file_ext == ".mp4" else media_type
                                 
+                                print(f"Processing {actual_type}: {filename}")
+                                
+                                # Download the file
+                                file_url = f"{api_url}/view?filename={filename}"
+                                print(f"Downloading from: {file_url}")
+                                
+                                content_response = make_request(file_url, timeout=180)
                                 if content_response.status_code == 200:
+                                    print(f"Successfully downloaded {actual_type}: {filename}")
                                     return {
                                         "status": "success",
                                         "content": content_response.content,
                                         "filename": filename,
                                         "prompt_id": prompt_id,
-                                        "type": "video"
+                                        "type": actual_type
                                     }
+                                else:
+                                    print(f"Failed to download {actual_type}. Status code: {content_response.status_code}")
             
-            # If we couldn't find standard outputs, try checking for AnimateDiff outputs
-            # These might be directly accessible via filename pattern
-            if job_status == "success":
-                # Try common AnimateDiff filename patterns
-                possible_files = [f"animation_{i:05d}.mp4" for i in range(1, 10)]
-                for filename in possible_files:
-                    try:
-                        file_url = f"{api_url}/view?filename={filename}"
-                        response = requests.head(file_url, timeout=10)
-                        
-                        if response.status_code == 200:
-                            content_response = requests.get(file_url, timeout=120)
-                            if content_response.status_code == 200:
-                                return {
-                                    "status": "success",
-                                    "content": content_response.content,
-                                    "filename": filename,
-                                    "prompt_id": prompt_id,
-                                    "type": "video",
-                                    "note": "Found using filename pattern"
-                                }
-                    except Exception as e:
-                        print(f"Error checking AnimateDiff file {filename}: {str(e)}")
+            # Check for AnimateDiff outputs
+            print("\n5. Checking for AnimateDiff outputs")
+            possible_files = [f"animation_{i:05d}.mp4" for i in range(1, 10)]
+            for filename in possible_files:
+                try:
+                    file_url = f"{api_url}/view?filename={filename}"
+                    print(f"Checking: {file_url}")
+                    
+                    response = make_request(file_url, method='head', timeout=30)
+                    if response.status_code == 200:
+                        print(f"Found AnimateDiff file: {filename}")
+                        content_response = make_request(file_url, timeout=180)
+                        if content_response.status_code == 200:
+                            print(f"Successfully downloaded AnimateDiff output: {filename}")
+                            return {
+                                "status": "success",
+                                "content": content_response.content,
+                                "filename": filename,
+                                "prompt_id": prompt_id,
+                                "type": "video",
+                                "note": "Found using filename pattern"
+                            }
+                except Exception as e:
+                    print(f"Error checking AnimateDiff file {filename}: {str(e)}")
             
             # If we got here, we couldn't find any output files
-            return {"status": "error", "message": "No output file found in job results"}
-        elif job_status == "error":
-            # Job failed
-            error_message = "Unknown error"
-            if "status" in job_info and "messages" in job_info["status"]:
-                for msg in job_info["status"]["messages"]:
-                    if len(msg) >= 2 and msg[0] == "execution_error" and isinstance(msg[1], dict):
-                        error_message = msg[1].get("exception_message", error_message)
-                        break
-            return {"status": "error", "message": f"Job failed: {error_message}"}
+            error_msg = "No output file found in job results"
+            print(error_msg)
+            return {"status": "error", "message": error_msg}
         else:
             # Job is still processing
-            return {"status": "processing", "message": "Job is still processing"}
+            status_msg = "Job is still processing"
+            print(status_msg)
+            return {"status": "processing", "message": status_msg}
             
-    except requests.exceptions.Timeout:
-        return {"status": "error", "message": "Timeout while fetching content. The server may be busy."}
-    except requests.exceptions.ConnectionError:
-        return {"status": "error", "message": f"Could not connect to ComfyUI API at {api_url}. The server might be down."}
+    except requests.exceptions.Timeout as e:
+        error_msg = f"Timeout while fetching content after {max_retries} attempts. The server may be busy. Error: {str(e)}"
+        print(error_msg)
+        return {"status": "error", "message": error_msg}
+    except requests.exceptions.ConnectionError as e:
+        error_msg = f"Could not connect to ComfyUI API at {api_url} after {max_retries} attempts. The server might be down. Error: {str(e)}"
+        print(error_msg)
+        return {"status": "error", "message": error_msg}
     except Exception as e:
-        return {"status": "error", "message": f"Error fetching content: {str(e)}"}
+        error_msg = f"Error fetching content: {str(e)}"
+        print(error_msg)
+        return {"status": "error", "message": error_msg}
 
 # Function to save media content to file
 def save_media_content(content, segment_type, segment_id, file_extension):
@@ -722,6 +694,7 @@ def save_media_content(content, segment_type, segment_id, file_extension):
     with open(file_path, "wb") as f:
         f.write(content)
     
+    # Return relative path from project directory
     return str(file_path)
 
 # Function for batch processing prompts
