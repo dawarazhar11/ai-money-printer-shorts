@@ -135,6 +135,27 @@ def load_saved_script():
             with open(script_file, "r") as f:
                 data = json.load(f)
                 
+                # Check if this is the default "cat ghost" script by looking for a key phrase
+                is_default_script = False
+                segments = data.get("segments", [])
+                if segments:
+                    for segment in segments:
+                        if isinstance(segment, dict) and segment.get("content") and "sense ghosts" in segment.get("content"):
+                            is_default_script = True
+                            print("Detected default 'cat ghost' script - clearing it")
+                            break
+                
+                if is_default_script:
+                    # Clear the default script
+                    st.session_state.script = ""
+                    st.session_state.segments = []
+                    st.session_state.script_theme = ""
+                    st.session_state.script_data = {}
+                    
+                    # Delete the file to prevent it from reloading
+                    script_file.unlink()
+                    return False
+                
                 # Load the basic required fields
                 st.session_state.script = data.get("full_script", "")
                 st.session_state.segments = data.get("segments", [])
@@ -344,6 +365,34 @@ def generate_local_description(preceding_content, following_content, theme):
 # Page header
 render_step_header(3, "Script Segmentation", 8)
 st.title("✂️ Script Segmentation")
+
+# Check for and clear default script content with specific phrases
+if "segments" in st.session_state and st.session_state.segments:
+    has_default_content = False
+    for segment in st.session_state.segments:
+        if isinstance(segment, dict) and segment.get("content"):
+            content = segment.get("content", "")
+            # Check for phrases that appear in the default script
+            if any(phrase in content for phrase in ["sense ghosts", "You're always asking", "bugs in the wall"]):
+                has_default_content = True
+                break
+    
+    if has_default_content:
+        # Clear the default content
+        st.session_state.segments = []
+        st.session_state.script = ""
+        st.session_state.script_theme = ""
+        if "script_data" in st.session_state:
+            st.session_state.script_data = {}
+        
+        # Also check if there's a file with this content and delete it
+        script_file = project_path / "script.json"
+        if script_file.exists():
+            try:
+                script_file.unlink()
+                print("Removed default script file")
+            except Exception as e:
+                print(f"Error removing script file: {str(e)}")
 
 # Add a notice about B-Roll changes
 st.warning("""
