@@ -297,16 +297,51 @@ def make_frame_with_advanced_typography(frame, text, font_path, font_size, curre
     text_width = text_bbox[2]
     text_height = text_bbox[3]
     
-    if style["position"] == "bottom":
+    # Get maximum width constraint from style (default to 80% if not specified)
+    max_width_percent = style.get("max_width_percent", 80)
+    max_text_width = int(width * max_width_percent / 100)
+    
+    # If text is wider than allowed, scale it down
+    if text_width > max_text_width:
+        scale_factor = max_text_width / text_width
+        new_font_size = int(font_size * scale_factor)
+        try:
+            font = ImageFont.truetype(font_path, new_font_size)
+            # Recalculate text dimensions with new font size
+            text_bbox = font.getbbox(text)
+            text_width = text_bbox[2]
+            text_height = text_bbox[3]
+        except:
+            # If font scaling fails, we'll just use original dimensions
+            print(f"Warning: Failed to scale font to fit max width. Text may be cut off.")
+    
+    # Get position from style
+    position = style.get("position", "bottom")
+    
+    # Extended position handling
+    if position == "bottom":
         text_x = width // 2
-        text_y = height - text_height - style["highlight_padding"]
-    elif style["position"] == "top":
+        text_y = height - text_height - style["highlight_padding"] * 2
+    elif position == "top":
         text_x = width // 2
         text_y = style["highlight_padding"]
-    elif style["position"] == "center":
+    elif position == "center":
         text_x = width // 2
         text_y = height // 2
+    elif position == "bottom_left" or position == "bottom-left":
+        text_x = style["highlight_padding"] + text_width // 2
+        text_y = height - text_height - style["highlight_padding"] * 2
+    elif position == "bottom_right" or position == "bottom-right":
+        text_x = width - text_width // 2 - style["highlight_padding"]
+        text_y = height - text_height - style["highlight_padding"] * 2
+    elif position == "top_left" or position == "top-left":
+        text_x = style["highlight_padding"] + text_width // 2
+        text_y = style["highlight_padding"]
+    elif position == "top_right" or position == "top-right":
+        text_x = width - text_width // 2 - style["highlight_padding"]
+        text_y = style["highlight_padding"]
     else:
+        # Default to bottom if unknown position
         text_x = width // 2
         text_y = height - text_height - style["highlight_padding"]
     

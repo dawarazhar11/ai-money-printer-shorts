@@ -332,6 +332,133 @@ def main():
                 st.success(f"Selected typography effects: {', '.join([e.replace('_', ' ').title() for e in selected_effects])}")
             else:
                 st.info("No typography effects selected. Check options above to add visual effects to your captions.")
+                
+            # Caption appearance customization
+            st.markdown("### Caption Customization")
+            st.write("Customize the appearance and position of your captions:")
+            
+            # Add informational note about customization
+            st.info("These settings are especially helpful if you're experiencing issues with text getting cut off in effects like Audio Reactive. Adjusting the position and maximum width can help keep text visible within the frame.")
+            
+            # Initialize customization settings if not present
+            if "custom_appearance" not in st.session_state.autocaptions:
+                st.session_state.autocaptions["custom_appearance"] = {
+                    "enabled": False,
+                    "position": "bottom",
+                    "text_color": (255, 255, 255),
+                    "background_color": (0, 0, 0, 180),
+                    "font_size": 40,
+                    "padding": 15,
+                    "max_width": 80
+                }
+            
+            # Enable/disable custom appearance
+            custom_enabled = st.checkbox(
+                "Override style settings with custom appearance",
+                value=st.session_state.autocaptions["custom_appearance"]["enabled"],
+                key="custom_appearance_enabled"
+            )
+            st.session_state.autocaptions["custom_appearance"]["enabled"] = custom_enabled
+            
+            if custom_enabled:
+                # Position selection
+                position = st.selectbox(
+                    "Text Position:",
+                    ["top", "center", "bottom", "bottom-left", "bottom-right", "top-left", "top-right"],
+                    index=["top", "center", "bottom", "bottom-left", "bottom-right", "top-left", "top-right"].index(
+                        st.session_state.autocaptions["custom_appearance"].get("position", "bottom")
+                    ),
+                    key="custom_position"
+                )
+                st.session_state.autocaptions["custom_appearance"]["position"] = position
+                
+                # Text color selection
+                text_color_r = st.slider("Text Color (Red)", 0, 255, int(st.session_state.autocaptions["custom_appearance"]["text_color"][0]), key="text_color_r")
+                text_color_g = st.slider("Text Color (Green)", 0, 255, int(st.session_state.autocaptions["custom_appearance"]["text_color"][1]), key="text_color_g")
+                text_color_b = st.slider("Text Color (Blue)", 0, 255, int(st.session_state.autocaptions["custom_appearance"]["text_color"][2]), key="text_color_b")
+                st.session_state.autocaptions["custom_appearance"]["text_color"] = (text_color_r, text_color_g, text_color_b)
+                
+                # Background color selection with alpha
+                use_background = st.checkbox(
+                    "Use background color", 
+                    value=st.session_state.autocaptions["custom_appearance"]["background_color"] is not None,
+                    key="use_background"
+                )
+                
+                if use_background:
+                    bg_color_r = st.slider("Background Color (Red)", 0, 255, int(st.session_state.autocaptions["custom_appearance"]["background_color"][0]), key="bg_color_r")
+                    bg_color_g = st.slider("Background Color (Green)", 0, 255, int(st.session_state.autocaptions["custom_appearance"]["background_color"][1]), key="bg_color_g")
+                    bg_color_b = st.slider("Background Color (Blue)", 0, 255, int(st.session_state.autocaptions["custom_appearance"]["background_color"][2]), key="bg_color_b")
+                    bg_alpha = st.slider("Background Opacity", 0, 255, int(st.session_state.autocaptions["custom_appearance"]["background_color"][3]) if len(st.session_state.autocaptions["custom_appearance"]["background_color"]) > 3 else 180, key="bg_alpha")
+                    st.session_state.autocaptions["custom_appearance"]["background_color"] = (bg_color_r, bg_color_g, bg_color_b, bg_alpha)
+                else:
+                    st.session_state.autocaptions["custom_appearance"]["background_color"] = None
+                
+                # Font size
+                font_size = st.slider("Font Size", 20, 80, st.session_state.autocaptions["custom_appearance"]["font_size"], key="custom_font_size")
+                st.session_state.autocaptions["custom_appearance"]["font_size"] = font_size
+                
+                # Padding
+                padding = st.slider("Text Box Padding", 0, 50, st.session_state.autocaptions["custom_appearance"]["padding"], key="custom_padding")
+                st.session_state.autocaptions["custom_appearance"]["padding"] = padding
+                
+                # Maximum width (to prevent text from being cut off)
+                max_width = st.slider("Maximum Text Width (%)", 30, 100, st.session_state.autocaptions["custom_appearance"]["max_width"], key="custom_max_width")
+                st.session_state.autocaptions["custom_appearance"]["max_width"] = max_width
+                
+                # Add preview for the custom settings
+                st.markdown("**Custom Style Preview:**")
+                preview_color = f"rgb({text_color_r}, {text_color_g}, {text_color_b})"
+                preview_bg = "transparent" if not use_background else f"rgba({bg_color_r}, {bg_color_g}, {bg_color_b}, {bg_alpha/255})"
+                
+                # Calculate position styling
+                position_style = ""
+                if "top" in position:
+                    position_style += "top: 20px;"
+                    if "center" not in position:
+                        position_style += "bottom: auto;"
+                elif "bottom" in position:
+                    position_style += "bottom: 20px;"
+                    position_style += "top: auto;"
+                else:  # center
+                    position_style += "top: 50%; transform: translateY(-50%);"
+                
+                if "left" in position:
+                    position_style += "left: 20px; right: auto; text-align: left;"
+                elif "right" in position:
+                    position_style += "right: 20px; left: auto; text-align: right;"
+                else:
+                    position_style += "left: 50%; transform: translateX(-50%);"
+                    if "center" == position:
+                        position_style = "top: 50%; left: 50%; transform: translate(-50%, -50%);"
+                
+                st.markdown(f"""
+                <div style="
+                    position: relative;
+                    width: 100%;
+                    height: 150px;
+                    background-color: #000;
+                    margin-top: 10px;
+                    border-radius: 5px;
+                    overflow: hidden;
+                ">
+                    <div style="
+                        position: absolute;
+                        {position_style}
+                        color: {preview_color};
+                        background-color: {preview_bg};
+                        padding: {padding}px;
+                        border-radius: {padding/2}px;
+                        font-family: Arial, sans-serif;
+                        font-size: {font_size}px;
+                        font-weight: bold;
+                        text-shadow: 1px 1px 2px #000;
+                        max-width: {max_width}%;
+                    ">
+                        Sample Custom Caption
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
         
         with col2:
             # Display style preview and details
@@ -491,6 +618,53 @@ def main():
                                 
                             except ImportError:
                                 st.warning("Could not load base styles, using selected style without custom effects")
+                        
+                        # Apply custom appearance settings if enabled
+                        custom_appearance = st.session_state.autocaptions.get("custom_appearance", {})
+                        if custom_appearance.get("enabled", False):
+                            # If we don't have a custom style yet, create one based on the selected style
+                            if custom_style is None:
+                                try:
+                                    from utils.video.captions import CAPTION_STYLES
+                                    custom_style = CAPTION_STYLES.get(style_name, {}).copy()
+                                except ImportError:
+                                    st.warning("Could not load base styles for custom appearance")
+                                    custom_style = {}
+                            
+                            # Update the style with custom appearance settings
+                            position = custom_appearance.get("position", "bottom")
+                            
+                            # Convert position values from the UI to style format
+                            position_mapping = {
+                                "top-left": "top_left",
+                                "top": "top",
+                                "top-right": "top_right",
+                                "center": "center",
+                                "bottom-left": "bottom_left",
+                                "bottom": "bottom",
+                                "bottom-right": "bottom_right"
+                            }
+                            
+                            # Apply the position
+                            mapped_position = position_mapping.get(position, "bottom")
+                            custom_style["position"] = mapped_position
+                            
+                            # Apply text color
+                            custom_style["text_color"] = custom_appearance.get("text_color", (255, 255, 255))
+                            
+                            # Apply background color
+                            custom_style["highlight_color"] = custom_appearance.get("background_color", None)
+                            
+                            # Apply font size
+                            custom_style["font_size"] = custom_appearance.get("font_size", 40)
+                            
+                            # Apply padding
+                            custom_style["highlight_padding"] = custom_appearance.get("padding", 15)
+                            
+                            # Apply maximum width (we'll add this as a custom property)
+                            custom_style["max_width_percent"] = custom_appearance.get("max_width", 80)
+                            
+                            print(f"Applied custom appearance settings: position={mapped_position}, font_size={custom_style['font_size']}, max_width={custom_style.get('max_width_percent')}%")
                         
                         # Pre-processing progress update
                         update_progress(10, "Preparing for captioning")
