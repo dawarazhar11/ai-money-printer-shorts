@@ -722,22 +722,27 @@ def make_frame_with_text(frame, text, style, word_info=None, current_time=0, is_
     
     # Convert MoviePy frame to PIL Image
     if callable(frame):
-        # If frame is a function, call it to get the actual frame
         frame = frame(current_time)
-    
     # Ensure frame is a numpy array
     if not isinstance(frame, np.ndarray):
         print(f"Warning: frame is not a numpy array, but {type(frame)}")
         return frame
-        
     frame_img = Image.fromarray(frame)
-    
+    # Debug: print text being drawn
+    print(f"DEBUG: Drawing text '{text}' at time {current_time}")
     # Apply typography effects if style has them, otherwise fall back to simple text
     if "typography_effects" in style and style["typography_effects"]:
-        return apply_typography_effects(frame_img, text, style, word_info, current_time, is_active)
+        result = apply_typography_effects(frame_img, text, style, word_info, current_time, is_active)
     else:
-        # This is the original implementation for backwards compatibility
-        return make_simple_frame_with_text(frame_img, text, style)
+        result = make_simple_frame_with_text(frame_img, text, style)
+    # Debug: save the first frame
+    if int(current_time) == 0:
+        try:
+            result.save("debug_caption_frame.png")
+            print("DEBUG: Saved debug_caption_frame.png")
+        except Exception as e:
+            print(f"DEBUG: Could not save debug frame: {e}")
+    return result
 
 # Rename the original function for backward compatibility
 def make_simple_frame_with_text(frame_img, text, style):
@@ -748,31 +753,21 @@ def make_simple_frame_with_text(frame_img, text, style):
     # Ensure frame_img is a PIL Image
     if isinstance(frame_img, np.ndarray):
         frame_img = Image.fromarray(frame_img)
-    
     # Check if frame_img is a PIL Image
     if not isinstance(frame_img, Image.Image):
         print(f"Warning: frame_img is not a PIL Image but {type(frame_img)}")
-        # Try to convert or return as is if not possible
         try:
             frame_img = Image.fromarray(np.array(frame_img))
         except:
-            # Return black frame
             return np.zeros((720, 1280, 3), dtype=np.uint8)
-    
     width, height = frame_img.size
-    
-    # Create a transparent overlay for text
     overlay = Image.new('RGBA', frame_img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
-    
-    # Get font
     font_path = get_system_font(style["font"])
+    print(f"DEBUG: Using font path: {font_path}")
     font = ImageFont.truetype(font_path, style["font_size"])
-    
-    # Calculate text position
     text_width, text_height = get_text_size(draw, text, font)
     padding = style["highlight_padding"]
-    
     if style["position"] == "bottom":
         text_x = (width - text_width) // 2 if style["align"] == "center" else padding
         text_y = height - text_height - padding * 2
@@ -782,10 +777,7 @@ def make_simple_frame_with_text(frame_img, text, style):
     elif style["position"] == "center":
         text_x = (width - text_width) // 2
         text_y = (height - text_height) // 2
-    
-    # Draw highlight/background if specified
     if style["highlight_color"]:
-        # Draw rounded rectangle background
         draw.rounded_rectangle(
             [
                 text_x - padding, 
@@ -796,30 +788,22 @@ def make_simple_frame_with_text(frame_img, text, style):
             radius=padding,
             fill=style["highlight_color"]
         )
-    
-    # Draw shadow if specified
     if style["shadow"]:
-        # Draw text with shadow
         shadow_offset = 2
         draw.text(
             (text_x + shadow_offset, text_y + shadow_offset),
             text,
             font=font,
-            fill=(0, 0, 0, 160)  # Semi-transparent black shadow
+            fill=(0, 0, 0, 160)
         )
-    
-    # Draw main text
     draw.text(
         (text_x, text_y),
         text,
         font=font,
         fill=style["text_color"]
     )
-    
-    # Composite the text overlay with the original frame
     result = Image.alpha_composite(frame_img.convert('RGBA'), overlay)
-    
-    # Convert back to RGB for MoviePy
+    print("DEBUG: Composited overlay onto frame_img")
     return np.array(result.convert('RGB'))
 
 @error_handler
@@ -882,6 +866,7 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
             return transcription
         
         words = transcription["words"]
+        print("DEBUG: Transcribed words:", words)
         
         # For word-by-word animation
         if style["word_by_word"] and style["animate"]:
@@ -916,6 +901,7 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
             # Ensure we cover the full video duration
             if video.duration > last_end_time:
                 animation_data.append((video.duration, "", None))
+            print("DEBUG: Animation data:", animation_data)
             
             # Create a function that returns the frame with text overlay at the given time
             def add_caption_to_frame(frame_img, t):
@@ -937,7 +923,7 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
                     if current_text:
                         return make_frame_with_text(
                             frame_img, 
-                            current_text, 
+                            current_text,  # Using current_text as the text parameter
                             style, 
                             word_info=current_word_info, 
                             current_time=t,
@@ -954,26 +940,33 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
             # Define a wrapper function that properly handles MoviePy's function-based frames
             def safe_frame_processor(get_frame, t):
                 """Safely process frames whether they're arrays or functions"""
+                import numpy as np
+                from PIL import Image
                 try:
                     # If get_frame is a function (which MoviePy provides), call it
                     if callable(get_frame):
                         actual_frame = get_frame(t)
-                        return make_frame_with_text(
+                        result = make_frame_with_text(
                             actual_frame, 
-                            current_text="", 
+                            text="", 
                             style=style,
                             current_time=t
                         )
-                    # Otherwise process as normal
-                    return add_caption_to_frame(get_frame, t)
+                    else:
+                        result = add_caption_to_frame(get_frame, t)
                 except Exception as e:
                     print(f"Error processing frame at time {t}: {str(e)}")
                     if callable(get_frame):
-                        return get_frame(t)  # Return original frame
-                    return get_frame  # Return unchanged
+                        result = get_frame(t)  # Return original frame
+                    else:
+                        result = get_frame  # Return unchanged
+                # Ensure result is a NumPy array
+                if isinstance(result, Image.Image):
+                    return np.array(result)
+                return result
 
             # Use the safe frame processor with MoviePy
-            captioned_video = video.fl_image(lambda img: safe_frame_processor(img, 0))
+            captioned_video = video.fl(lambda gf, t: safe_frame_processor(gf, t))
             
         else:
             # For segment-by-segment captions (not word-by-word)
@@ -1017,31 +1010,37 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
             # Define a wrapper function that properly handles MoviePy's function-based frames
             def safe_frame_processor(get_frame, t):
                 """Safely process frames whether they're arrays or functions"""
+                import numpy as np
+                from PIL import Image
                 try:
                     # If get_frame is a function (which MoviePy provides), call it
                     if callable(get_frame):
                         actual_frame = get_frame(t)
-                        
                         # Find the subtitle text that should be displayed at time t
                         text = ""
                         for subtitle_time, subtitle_text in subtitles:
                             if subtitle_time > t:
                                 break
                             text = subtitle_text
-                        
                         if text:
-                            return make_frame_with_text(actual_frame, text, style, current_time=t)
-                        return actual_frame
-                    # Otherwise process as normal
-                    return add_caption_to_frame(get_frame, t)
+                            result = make_frame_with_text(actual_frame, text, style, current_time=t)
+                        else:
+                            result = actual_frame
+                    else:
+                        result = add_caption_to_frame(get_frame, t)
                 except Exception as e:
                     print(f"Error processing frame at time {t}: {str(e)}")
                     if callable(get_frame):
-                        return get_frame(t)  # Return original frame
-                    return get_frame  # Return unchanged
+                        result = get_frame(t)  # Return original frame
+                    else:
+                        result = get_frame  # Return unchanged
+                # Ensure result is a NumPy array
+                if isinstance(result, Image.Image):
+                    return np.array(result)
+                return result
 
             # Use the safe frame processor with MoviePy
-            captioned_video = video.fl_image(lambda img: safe_frame_processor(img, 0))
+            captioned_video = video.fl(lambda gf, t: safe_frame_processor(gf, t))
         
         # Write output video
         print(f"Writing captioned video to: {output_path}")
