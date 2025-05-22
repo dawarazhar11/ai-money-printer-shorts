@@ -876,32 +876,55 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
             current_segment = []
             last_end_time = 0
             
-            for i, word in enumerate(words):
-                current_words.append(word["word"])
-                
-                # Add this word to the current segment
-                if len(current_segment) < 7:  # Maximum 7 words per line
-                    current_segment.append(word["word"])
-                else:
-                    # Start a new segment
-                    text = " ".join(current_segment)
-                    current_segment = [word["word"]]
-                
-                # Output the current words
-                text = " ".join(current_words[-min(7, len(current_words)):])
-                animation_data.append((word["start"], text, word))  # Pass the word info for effects
-                
-                # If at the end of the segment or last word, clear after a pause
-                if len(current_segment) >= 7 or i == len(words) - 1:
-                    # Stay visible for a bit after the word ends
-                    stay_visible = min(0.5, words[i]["end"] - words[i]["start"])
-                    animation_data.append((word["end"] + stay_visible, "", None))
-                    last_end_time = word["end"] + stay_visible
+            print("DEBUG: Creating animation data from words:")
+            print(f"DEBUG: Found {len(words)} words in transcript")
             
-            # Ensure we cover the full video duration
-            if video.duration > last_end_time:
+            # Special case: If no words are found, still need empty animation data
+            if not words:
+                animation_data.append((0, "", None))
                 animation_data.append((video.duration, "", None))
-            print("DEBUG: Animation data:", animation_data)
+            else:
+                # Process all words in transcript
+                for i, word in enumerate(words):
+                    # Debug for first 5 words
+                    if i < 5:
+                        print(f"DEBUG: Processing word {i}: '{word['word']}' ({word['start']:.2f}s - {word['end']:.2f}s)")
+                    
+                    # Add this word to current words list and segment
+                    current_words.append(word["word"])
+                    
+                    # Add this word to the current segment
+                    if len(current_segment) < 7:  # Maximum 7 words per line
+                        current_segment.append(word["word"])
+                    else:
+                        # Start a new segment
+                        current_segment = [word["word"]]
+                    
+                    # Output the current words (up to 7 most recent)
+                    display_words = current_words[-min(7, len(current_words)):]
+                    text = " ".join(display_words)
+                    
+                    # Add entry at the start time of this word
+                    animation_data.append((word["start"], text, word))
+                    
+                    # If at the end of the segment or last word, add a blank entry after a pause
+                    if len(current_segment) >= 7 or i == len(words) - 1:
+                        # Stay visible for a bit after the word ends
+                        stay_visible = min(0.5, word["end"] - word["start"])
+                        animation_data.append((word["end"] + stay_visible, "", None))
+                        last_end_time = word["end"] + stay_visible
+                
+                # Ensure we cover the full video duration
+                if video.duration > last_end_time:
+                    animation_data.append((video.duration, "", None))
+            
+            # Debug the first few animation data entries
+            print("DEBUG: Animation data (first 10 entries):")
+            for i, (time_point, text, word_info) in enumerate(animation_data[:10]):
+                if word_info:
+                    print(f"  {i}: {time_point:.2f}s - '{text}' (word: '{word_info.get('word', '')}')")
+                else:
+                    print(f"  {i}: {time_point:.2f}s - '{text}' (word: None)")
             
             # Create a function that returns the frame with text overlay at the given time
             def add_caption_to_frame(frame_img, t):
@@ -911,6 +934,14 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
                 is_active = False
                 
                 try:
+                    # Debug the animation data
+                    if t < 0.5:  # Only print for the first half second to avoid spam
+                        print(f"DEBUG: Finding text for time {t}")
+                        print(f"DEBUG: Animation data contains {len(animation_data)} entries")
+                        for i, (time_point, text, word_info) in enumerate(animation_data[:5]):
+                            print(f"DEBUG:   Entry {i}: time={time_point}, text='{text}'")
+                    
+                    # Find the appropriate text for this time
                     for i, (time_point, text, word_info) in enumerate(animation_data):
                         if time_point > t:
                             if i > 0:
@@ -918,7 +949,25 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
                                 current_text = animation_data[i-1][1]
                                 current_word_info = animation_data[i-1][2]
                                 is_active = True
+                                if t < 0.5:  # Only debug early frames
+                                    print(f"DEBUG: Found text for time {t}: '{current_text}'")
                             break
+                    
+                    # Special case for first frame: 
+                    # If we're at time 0 and the first entry in animation_data is also at time 0
+                    if t == 0 and animation_data and animation_data[0][0] == 0:
+                        current_text = animation_data[0][1]
+                        current_word_info = animation_data[0][2]
+                        is_active = True
+                        print(f"DEBUG: Using first animation entry for time 0: '{current_text}'")
+                    
+                    # Additional debug for empty text
+                    if not current_text and t < 10:  # First 10 seconds
+                        print(f"DEBUG: No text found for time {t}")
+                        # Check if this time falls within any word
+                        for i, word in enumerate(words):
+                            if word["start"] <= t <= word["end"]:
+                                print(f"DEBUG: Word should be visible: '{word['word']}' ({word['start']}-{word['end']})")
                     
                     if current_text:
                         return make_frame_with_text(
@@ -931,7 +980,7 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
                         )
                     return frame_img
                 except Exception as e:
-                    print(f"Error in animated caption frame: {str(e)}")
+                    print(f"Error in add_caption_to_frame: {str(e)}")
                     return frame_img
             
             # Apply the text overlay to the video
