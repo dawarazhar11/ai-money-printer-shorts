@@ -225,6 +225,10 @@ def load_script_data():
 # Function to load saved B-Roll prompts
 def load_broll_prompts():
     prompts_file = project_path / "broll_prompts.json"
+    
+    # Print more debug info
+    print(f"Debug - Looking for B-Roll prompts at: {prompts_file.absolute()}")
+    
     if prompts_file.exists():
         try:
             with open(prompts_file, "r") as f:
@@ -232,6 +236,7 @@ def load_broll_prompts():
                 
                 # Print debug info
                 print(f"Debug - Loading B-Roll prompts from {prompts_file}")
+                print(f"Debug - JSON data keys: {list(data.keys())}")
                 
                 # Validate data structure
                 if not isinstance(data, dict):
@@ -249,10 +254,11 @@ def load_broll_prompts():
                                      if isinstance(prompt_data, dict) and "prompt" in prompt_data)
                     
                     print(f"Debug - Found {prompt_count} B-Roll prompts")
+                    print(f"Debug - Segment IDs: {list(prompts_data.keys())}")
                     
                     # Update session state if we have valid prompts
                     if prompt_count > 0:
-                        st.session_state.broll_prompts = prompts_data
+                        st.session_state.broll_prompts = data
                         st.session_state.broll_type = broll_type
                         return True
                 else:
@@ -265,7 +271,7 @@ def load_broll_prompts():
                     
                     # Update session state if we have valid prompts
                     if prompt_count > 0:
-                        st.session_state.broll_prompts = data
+                        st.session_state.broll_prompts = {"prompts": data, "broll_type": "video"}
                         return True
                 
                 print("Warning: No valid B-Roll prompts found")
@@ -277,8 +283,69 @@ def load_broll_prompts():
             print(f"Error loading B-Roll prompts: {str(e)}")
             return False
     else:
-        print(f"B-Roll prompts file not found at: {prompts_file}")
+        print(f"B-Roll prompts file not found at: {prompts_file.absolute()}")
+        
+        # Try alternate location
+        alt_prompts_file = Path("config/user_data/my_short_video/broll_prompts.json")
+        print(f"Trying alternate location: {alt_prompts_file.absolute()}")
+        
+        if alt_prompts_file.exists():
+            try:
+                with open(alt_prompts_file, "r") as f:
+                    data = json.load(f)
+                    
+                    # Print debug info
+                    print(f"Debug - Loading B-Roll prompts from alternate location: {alt_prompts_file}")
+                    print(f"Debug - JSON data keys: {list(data.keys())}")
+                    
+                    # Validate data structure
+                    if not isinstance(data, dict):
+                        print("Error: B-Roll prompts file has invalid format")
+                        return False
+                    
+                    # Handle different JSON structures
+                    if "prompts" in data and isinstance(data["prompts"], dict):
+                        # New format: {"prompts": {"segment_0": {...}, ...}, "broll_type": "..."}
+                        prompts_data = data["prompts"]
+                        broll_type = data.get("broll_type", "video")
+                        
+                        # Count prompts
+                        prompt_count = sum(1 for segment_id, prompt_data in prompts_data.items() 
+                                         if isinstance(prompt_data, dict) and "prompt" in prompt_data)
+                        
+                        print(f"Debug - Found {prompt_count} B-Roll prompts")
+                        print(f"Debug - Segment IDs: {list(prompts_data.keys())}")
+                        
+                        # Update session state if we have valid prompts
+                        if prompt_count > 0:
+                            st.session_state.broll_prompts = data
+                            st.session_state.broll_type = broll_type
+                            return True
+                    else:
+                        # Legacy format: {"segment_0": {...}, ...}
+                        # Count prompts
+                        prompt_count = sum(1 for segment_id, prompt_data in data.items() 
+                                         if isinstance(prompt_data, dict) and "prompt" in prompt_data)
+                        
+                        print(f"Debug - Found {prompt_count} B-Roll prompts")
+                        
+                        # Update session state if we have valid prompts
+                        if prompt_count > 0:
+                            st.session_state.broll_prompts = {"prompts": data, "broll_type": "video"}
+                            return True
+                    
+                    print("Warning: No valid B-Roll prompts found in alternate location")
+                    return False
+            except json.JSONDecodeError:
+                print(f"Error: broll_prompts.json is not valid JSON")
+                return False
+            except Exception as e:
+                print(f"Error loading B-Roll prompts: {str(e)}")
+                return False
+        
+        print("B-Roll prompts file not found in any location")
         return False
+
 # Function to load content status
 def load_content_status():
     status_file = project_path / "content_status.json"
@@ -356,26 +423,78 @@ def prepare_comfyui_workflow(template_file, prompt, negative_prompt, resolution=
         return None
 
 # Function to submit job to ComfyUI
-def submit_comfyui_job(api_url, workflow):
+def submit_comfyui_workflow(workflow):
     """
-    Submit a job to ComfyUI
+    Submit a workflow to ComfyUI and return a standardized result
+    
+    Args:
+        workflow: The prepared ComfyUI workflow to submit
+        
+    Returns:
+        dict: Result with status and prompt_id fields
     """
     try:
+        # Validate the workflow
+        if not workflow:
+            return {"status": "error", "message": "Invalid workflow - cannot submit"}
+        
         # Use the correct ComfyUI server URL
-        api_url = "http://100.115.243.42:8000"
+        api_url = COMFYUI_VIDEO_API_URL
         print(f"Submitting job to ComfyUI at: {api_url}")
         
+        # Submit the workflow
         response = requests.post(f"{api_url}/prompt", json=workflow, timeout=30)
+        
         if response.status_code == 200:
             result = response.json()
             print(f"Job submitted successfully. Response: {result}")
-            return result
+            
+            # Extract the prompt_id from the response
+            if "prompt_id" in result:
+                prompt_id = result["prompt_id"]
+                
+                # Save the prompt_id for tracking
+                if "broll_fetch_ids" not in st.session_state:
+                    st.session_state.broll_fetch_ids = {}
+                
+                # Set up progress tracking
+                tracker = start_comfyui_tracking(prompt_id, api_url)
+                if "active_trackers" not in st.session_state:
+                    st.session_state.active_trackers = []
+                st.session_state.active_trackers.append(tracker)
+                
+                return {
+                    "status": "success",
+                    "prompt_id": prompt_id,
+                    "message": "Job submitted successfully"
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": f"No prompt_id in response: {result}"
+                }
         else:
-            print(f"Error submitting job. Status code: {response.status_code}")
-            return None
+            error_message = f"Error submitting job. Status code: {response.status_code}"
+            print(error_message)
+            try:
+                error_detail = response.json()
+                print(f"Response content: {error_detail}")
+            except:
+                error_detail = response.text
+                print(f"Response text: {error_detail}")
+            
+            return {
+                "status": "error",
+                "message": error_message,
+                "detail": str(error_detail)
+            }
     except Exception as e:
-        print(f"Error submitting job: {str(e)}")
-        return None
+        error_message = f"Exception while submitting job: {str(e)}"
+        print(error_message)
+        return {
+            "status": "error",
+            "message": error_message
+        }
 
 # Function to check ComfyUI job status
 def check_comfyui_job_status(api_url, prompt_id):
@@ -737,6 +856,12 @@ def batch_process_broll_prompts():
     # Get the workflow template path for video
     template_file = JSON_TEMPLATES["video"]
     
+    # Debug information
+    print(f"Debug - Starting batch processing for {len(broll_segments)} B-Roll segments")
+    print(f"Debug - B-Roll prompts keys: {list(st.session_state.broll_prompts.keys())}")
+    if "prompts" in st.session_state.broll_prompts:
+        print(f"Debug - Prompts sub-keys: {list(st.session_state.broll_prompts['prompts'].keys())}")
+    
     # Process each B-Roll segment
     for i, segment in enumerate(broll_segments):
         segment_id = f"segment_{i}"
@@ -744,6 +869,8 @@ def batch_process_broll_prompts():
         # Check if we have prompts for this segment
         if "prompts" in st.session_state.broll_prompts and segment_id in st.session_state.broll_prompts["prompts"]:
             prompt_data = st.session_state.broll_prompts["prompts"][segment_id]
+            
+            print(f"Debug - Processing segment {segment_id} with prompt data: {prompt_data.keys() if isinstance(prompt_data, dict) else 'not a dict'}")
             
             # Prepare the workflow
             workflow = prepare_comfyui_workflow(
@@ -753,49 +880,79 @@ def batch_process_broll_prompts():
                 resolution="1080x1920"
             )
             
-            if workflow:
-                # Submit to ComfyUI
-                prompt_id = submit_comfyui_job(COMFYUI_VIDEO_API_URL, workflow)
+            # Display the prepared prompt in the UI
+            st.info(f"Preparing prompt for Segment {i+1}...")
+            st.text_area(f"Segment {i+1} Prompt", value=prompt_data["prompt"], height=150, key=f"prompt_view_{i}")
+            
+            try:
+                # Submit the workflow to ComfyUI
+                result = submit_comfyui_workflow(workflow)
                 
-                if prompt_id:
+                if result["status"] == "success":
+                    prompt_id = result["prompt_id"]
+                    
+                    # Store the prompt ID
                     prompt_ids[segment_id] = prompt_id
-                    
-                    # Save the prompt ID for later reference
-                    st.session_state.broll_fetch_ids[segment_id] = prompt_id
-                    
-                    # Set up progress tracking
-                    tracker = start_comfyui_tracking(prompt_id, COMFYUI_VIDEO_API_URL)
-                    if "active_trackers" not in st.session_state:
-                        st.session_state.active_trackers = []
-                    st.session_state.active_trackers.append(tracker)
+                    st.session_state.batch_process_status["prompt_ids"][segment_id] = prompt_id
                     
                     # Update content status
-                    st.session_state.content_status["broll"][segment_id] = {
-                        "status": "processing",
-                        "prompt_id": prompt_id,
-                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    }
+                    update_content_status(
+                        segment_id=segment_id,
+                        segment_type="broll",
+                        status="processing",
+                        message=f"Submitted to video server (ID: {prompt_id})",
+                        prompt_id=prompt_id
+                    )
+                    
+                    st.success(f"Submitted B-Roll Segment {i+1} with ID: {prompt_id}")
                 else:
-                    errors[segment_id] = "Failed to submit job to ComfyUI"
-            else:
-                errors[segment_id] = "Failed to prepare workflow"
+                    error_msg = result.get("message", "Unknown error")
+                    errors[segment_id] = error_msg
+                    st.session_state.batch_process_status["errors"][segment_id] = error_msg
+                    
+                    # Update content status
+                    update_content_status(
+                        segment_id=segment_id,
+                        segment_type="broll",
+                        status="error",
+                        message=f"Submission failed: {error_msg}"
+                    )
+                    
+                    st.error(f"Failed to submit B-Roll Segment {i+1}: {error_msg}")
+            except Exception as e:
+                error_msg = str(e)
+                errors[segment_id] = error_msg
+                st.session_state.batch_process_status["errors"][segment_id] = error_msg
+                
+                # Update content status
+                update_content_status(
+                    segment_id=segment_id,
+                    segment_type="broll",
+                    status="error",
+                    message=f"Exception: {error_msg}"
+                )
+                
+                st.error(f"Exception while submitting B-Roll Segment {i+1}: {error_msg}")
         else:
-            errors[segment_id] = "No prompt data found for this segment"
+            print(f"Debug - No prompts found for segment {segment_id}")
+            print(f"Debug - Available segments: {list(st.session_state.broll_prompts.get('prompts', {}).keys())}")
+            
+            # Update content status to show missing prompt
+            update_content_status(
+                segment_id=segment_id,
+                segment_type="broll",
+                status="error",
+                message="No prompt available. Please create a B-Roll prompt first."
+            )
+            
+            st.warning(f"No prompt found for B-Roll Segment {i+1}. Please generate prompts first.")
     
-    # Save the results to session state
-    st.session_state.batch_process_status["prompt_ids"] = prompt_ids
-    st.session_state.batch_process_status["errors"] = errors
-    
-    # Save content status to file
-    save_content_status()
-    
-    # Force refresh of UI by triggering a rerun after a short delay
-    if prompt_ids:
-        st.success(f"Successfully generated {len(prompt_ids)} new jobs. UI will update with new IDs...")
-        time.sleep(0.5)
-        st.rerun()
-    
-    return prompt_ids, errors
+    # Return results
+    return {
+        "status": "success" if not errors else "partial_success" if prompt_ids else "error",
+        "prompt_ids": prompt_ids,
+        "errors": errors
+    }
 
 # Function for A-Roll content generation only
 def generate_aroll_content(segments, aroll_fetch_ids):
@@ -1465,19 +1622,19 @@ else:
                 st.error("No segments found. Please ensure you have completed the Script Segmentation step.")
                 st.stop()
             
-            # Mark as running before starting the thread
-        st.session_state.parallel_tasks["running"] = True
-        
-        # Start the A-Roll content generation in a separate thread
-        thread = threading.Thread(
-            target=generate_aroll_content, 
-            args=(temp_segments, temp_aroll_fetch_ids)
-        )
-        thread.daemon = True
-        thread.start()
-        
-        # Refresh the page to show progress
-        st.rerun()
+                        # Mark as running before starting the thread
+            st.session_state.parallel_tasks["running"] = True
+                        
+            # Start the A-Roll content generation in a separate thread
+            thread = threading.Thread(
+                target=generate_aroll_content, 
+                args=(temp_segments, temp_aroll_fetch_ids)
+            )
+            thread.daemon = True
+            thread.start()
+                        
+            # Refresh the page to show progress
+            st.rerun()
     
     with col2:
         st.markdown("### B-Roll Content")
@@ -1575,7 +1732,26 @@ if "aroll" in st.session_state.content_status and "broll" in st.session_state.co
                             prompt_data = st.session_state.broll_prompts["prompts"][segment_id]
                             st.markdown(f"**Prompt:** {prompt_data.get('prompt', 'No prompt available')}")
                             st.markdown(f"**Expected Content Type:** {'Video' if prompt_data.get('is_video', False) else 'Image'}")
+                        else:
+                            st.warning("No prompt available for this segment. Please create a B-Roll prompt first.")
                         
+                        # Display status and result
+                        if status['status'] == "complete":
+                            st.markdown(f"**Status:** ✅ Completed")
+                            st.markdown(f"**File:** {status['file_path']}")
+                            st.markdown(f"**Generated:** {status['timestamp']}")
+                        elif status['status'] == "error":
+                            st.error(f"**Status:** ❌ Error")
+                            st.error(f"**Error:** {status.get('message', 'Unknown error')}")
+                        elif status['status'] == "processing":
+                            st.info(f"**Status:** ⚙️ Processing")
+                            st.info(f"**Message:** {status.get('message', 'Processing...')}")
+                        elif status['status'] == "waiting":
+                            st.info(f"**Status:** ⏳ Waiting")
+                            st.info(f"**Message:** {status.get('message', 'Waiting for ComfyUI...')}")
+                        else:
+                            st.info(f"**Status:** ℹ️ {status['status']}")
+                            
                         # Manual upload option
                         if st.session_state.manual_upload:
                             if "prompts" in st.session_state.broll_prompts and segment_id in st.session_state.broll_prompts["prompts"]:
