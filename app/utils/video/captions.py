@@ -837,18 +837,52 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
         if transcription["status"] != "success":
             return transcription
         
-        words = transcription["words"]
-        print(f"DEBUG: Transcription returned {len(words)} words")
+        # Check if we got valid text
+        transcript_text = transcription.get("text", transcription.get("transcript", ""))
+        words = transcription.get("words", [])
         
-        # If no words were transcribed, create a fallback caption
-        if not words:
-            print("WARNING: No words found in transcription. Creating a fallback caption.")
+        print(f"DEBUG: Transcription returned {len(words)} words")
+        print(f"DEBUG: Transcript text: {transcript_text[:100] if transcript_text else 'No text'}")
+        
+        # If no words were transcribed, try to check if there's actually audio in the video
+        if not words or not transcript_text.strip():
+            print("WARNING: No words found in transcription. Checking for audio...")
+            
+            # Try to analyze audio to see if there's actually speech
+            try:
+                video_clip = mp.VideoFileClip(video_path)
+                if video_clip.audio is None:
+                    print("DEBUG: Video has no audio track")
+                    has_audio = False
+                else:
+                    # Extract a sample of the audio and check if it's mostly silence
+                    audio = video_clip.audio
+                    # If audio duration is less than 1 second, consider it silent
+                    if audio.duration < 1.0:
+                        print("DEBUG: Audio duration too short (< 1 second)")
+                        has_audio = False
+                    else:
+                        print("DEBUG: Video has audio track of duration:", audio.duration)
+                        has_audio = True
+                video_clip.close()
+            except Exception as e:
+                print(f"DEBUG: Error checking audio: {e}")
+                has_audio = True  # Assume there's audio if we can't check
+            
             # Create a fallback word that covers the entire video duration
-            fallback_word = {
-                "word": "No speech detected",
-                "start": 0,
-                "end": video.duration
-            }
+            if not has_audio:
+                fallback_word = {
+                    "word": "No audio detected",
+                    "start": 0,
+                    "end": video.duration
+                }
+            else:
+                fallback_word = {
+                    "word": "No speech detected",
+                    "start": 0,
+                    "end": video.duration
+                }
+            
             words = [fallback_word]
             print(f"DEBUG: Created fallback caption covering 0 to {video.duration} seconds")
         

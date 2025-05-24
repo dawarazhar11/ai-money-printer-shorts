@@ -123,11 +123,25 @@ def transcribe_with_whisper(audio_path, model_size="base"):
         model = whisper.load_model(model_size)
         
         print("Transcribing audio...")
+        # Use English language model for better word-level timing
         result = model.transcribe(
             audio_path,
             word_timestamps=True,
-            verbose=False
+            verbose=False,
+            language="en",
+            initial_prompt="The following is a transcription of spoken content."
         )
+        
+        # Check if we got any transcription
+        if not result.get("text", "").strip():
+            print("No text transcribed by Whisper. This might indicate silence or very quiet audio.")
+            return {
+                "status": "success",
+                "engine": "whisper",
+                "text": "",
+                "segments": [],
+                "words": []
+            }
         
         # Process the result to extract word-level timings
         segments = []
@@ -140,12 +154,26 @@ def transcribe_with_whisper(audio_path, model_size="base"):
                 "text": segment["text"].strip()
             })
             
-            for word in segment.get("words", []):
+            # Check if we have word-level timestamps in the segment
+            if "words" in segment:
+                for word in segment["words"]:
+                    words.append({
+                        "word": word["word"].strip(),
+                        "start": word["start"],
+                        "end": word["end"],
+                        "probability": word.get("probability", 1.0)
+                    })
+        
+        # If we don't have any words with timing info, create words from segments
+        if not words and segments:
+            print("No word-level timing found, creating words from segments")
+            for segment in segments:
+                # Create a word for each segment using the full text
                 words.append({
-                    "word": word["word"].strip(),
-                    "start": word["start"],
-                    "end": word["end"],
-                    "probability": word.get("probability", 1.0)
+                    "word": segment["text"],
+                    "start": segment["start"],
+                    "end": segment["end"],
+                    "probability": 1.0
                 })
         
         return {
@@ -181,13 +209,30 @@ def transcribe_with_faster_whisper(audio_path, model_size="base"):
         segments, info = model.transcribe(
             audio_path,
             word_timestamps=True,
-            vad_filter=True
+            vad_filter=True,
+            language="en",
+            task="transcribe",
+            initial_prompt="The following is a transcription of spoken content."
         )
         
         # Process the result to extract word-level timings
         segment_list = []
         words_list = []
         full_text = ""
+        
+        # Convert generator to list to avoid multiple iterations
+        segments = list(segments)
+        
+        # Check if we got any transcription
+        if not segments:
+            print("No segments transcribed by Faster Whisper. This might indicate silence or very quiet audio.")
+            return {
+                "status": "success",
+                "engine": "faster_whisper",
+                "text": "",
+                "segments": [],
+                "words": []
+            }
         
         for segment in segments:
             segment_text = segment.text.strip()
@@ -207,10 +252,25 @@ def transcribe_with_faster_whisper(audio_path, model_size="base"):
                     "probability": word.probability
                 })
         
+        # If no words were detected but we have segments, create words from segments
+        if not words_list and segment_list:
+            print("No word-level timing found, creating words from segments")
+            for segment in segment_list:
+                # Create a word for each segment using the full text
+                words_list.append({
+                    "word": segment["text"],
+                    "start": segment["start"],
+                    "end": segment["end"],
+                    "probability": 1.0
+                })
+        
+        # Trim extra whitespace from full text
+        full_text = full_text.strip()
+        
         return {
             "status": "success",
             "engine": "faster_whisper",
-            "text": full_text.strip(),
+            "text": full_text,
             "segments": segment_list,
             "words": words_list
         }
@@ -368,6 +428,52 @@ def transcribe_video(video_path, engine="auto", model_size="base"):
             result = transcribe_with_vosk(audio_path)
         else:
             result = {"status": "error", "message": f"Unknown engine: {engine}"}
+        
+        # Ensure all required keys are present
+        if result["status"] == "success":
+            # Make sure text key is present and properly populated
+            if "text" not in result:
+                result["text"] = ""
+                
+                # Try to construct text from segments or words
+                if "segments" in result and result["segments"]:
+                    result["text"] = " ".join(segment["text"] for segment in result["segments"])
+                elif "words" in result and result["words"]:
+                    result["text"] = " ".join(word["word"] for word in result["words"])
+            
+            # Make sure words key is present
+            if "words" not in result:
+                result["words"] = []
+                
+                # Try to create words from segments if available
+                if "segments" in result and result["segments"] and not result["words"]:
+                    for segment in result["segments"]:
+                        result["words"].append({
+                            "word": segment["text"],
+                            "start": segment["start"],
+                            "end": segment["end"],
+                            "probability": 1.0
+                        })
+            
+            # Make sure segments key is present
+            if "segments" not in result:
+                result["segments"] = []
+                
+                # Try to create segments from words if available
+                if "words" in result and result["words"] and not result["segments"]:
+                    # Group words into sentences/segments
+                    if result["words"]:
+                        result["segments"] = [{
+                            "text": result["text"],
+                            "start": result["words"][0]["start"],
+                            "end": result["words"][-1]["end"]
+                        }]
+        
+        # Print some debug info
+        if result["status"] == "success":
+            print(f"Transcription successful! Found {len(result.get('words', []))} words.")
+        else:
+            print(f"Transcription failed: {result.get('message', 'Unknown error')}")
         
         return result
     finally:
