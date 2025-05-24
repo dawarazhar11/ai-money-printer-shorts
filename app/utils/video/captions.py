@@ -889,7 +889,7 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
                     
                     # Add this word to current words list and segment
                     current_words.append(word["word"])
-                    
+                
                     # Add this word to the current segment
                     if len(current_segment) < 7:  # Maximum 7 words per line
                         current_segment.append(word["word"])
@@ -908,8 +908,8 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
                     last_end_time = end_time
                 
                     # If at the end of the segment or last word, add a blank entry after a pause
-                if len(current_segment) >= 7 or i == len(words) - 1:
-                    # Stay visible for a bit after the word ends
+                    if len(current_segment) >= 7 or i == len(words) - 1:
+                        # Stay visible for a bit after the word ends
                         stay_visible = min(0.5, end_time - start_time)
                         animation_data.append((end_time + stay_visible, "", None))
                         last_end_time = end_time + stay_visible
@@ -1075,7 +1075,7 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
 def get_available_caption_styles():
     """Return a list of available caption styles with details"""
     return {name: {k: v for k, v in style.items() 
-                  if k not in ['font']}  # Exclude font path for cleaner output
+        if k not in ['font']}  # Exclude font path for cleaner output
             for name, style in CAPTION_STYLES.items()}
 
 def get_caption_style(style_name=None, custom_style=None):

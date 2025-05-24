@@ -222,7 +222,7 @@ except ImportError:
 
 # Import other modules
 from components.progress import render_step_header
-from components.navigation import render_workflow_navigation, render_step_navigation
+from components.custom_navigation import render_custom_sidebar, render_horizontal_navigation, render_step_navigation
 from utils.session_state import get_settings, get_project_path, mark_step_complete
 
 # Rest of the imports
@@ -301,8 +301,37 @@ def load_css():
 
 load_css()
 
+# Style for horizontal navigation
+st.markdown("""
+<style>
+    .horizontal-nav {
+        margin-bottom: 20px;
+        padding: 10px;
+        background-color: #f0f2f6;
+        border-radius: 10px;
+    }
+    
+    .horizontal-nav button {
+        background-color: transparent;
+        border: none;
+        font-size: 1.2rem;
+        margin: 0 5px;
+        transition: all 0.3s;
+    }
+    
+    .horizontal-nav button:hover {
+        transform: scale(1.2);
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Add horizontal navigation
+st.markdown("<div class='horizontal-nav'>", unsafe_allow_html=True)
+render_horizontal_navigation()
+st.markdown("</div>", unsafe_allow_html=True)
+
 # Render navigation sidebar
-render_workflow_navigation()
+render_custom_sidebar()
 
 # Load settings and project path
 settings = get_settings()
@@ -318,25 +347,61 @@ if "video_assembly" not in st.session_state:
         "sequence": []
     }
 
-# Function to load content status from previous step
+# Function to load content status
 def load_content_status():
-    status_file = project_path / "content_status.json"
-    if status_file.exists():
+    """Load content status from both A-roll and B-roll status files"""
+    content_status = {
+        "aroll": {},
+        "broll": {}
+    }
+    
+    # Load B-roll status
+    broll_status_file = project_path / "content_status.json"
+    print(f"Checking B-Roll status file at: {broll_status_file}")
+    if broll_status_file.exists():
         try:
-            with open(status_file, "r") as f:
-                status_data = json.load(f)
-                # Validate structure
-                if "aroll" in status_data and "broll" in status_data:
-                    return status_data
+            with open(broll_status_file, "r") as f:
+                broll_data = json.load(f)
+                if "broll" in broll_data:
+                    content_status["broll"] = broll_data["broll"]
+                    print(f"Loaded {len(broll_data['broll'])} B-Roll segments")
                 else:
-                    st.error("Content status file has invalid structure.")
-                    return None
-        except Exception as e:
-            st.error(f"Error loading content status: {str(e)}")
-            return None
+                    print("No 'broll' key found in content_status.json")
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Error loading B-Roll status: {str(e)}")
     else:
-        st.error("Content status file not found. Please complete the Content Production step first.")
-        return None
+        print(f"B-Roll status file not found at {broll_status_file}")
+    
+    # Load A-roll status - try multiple potential paths
+    aroll_status_files = [
+        project_path / "aroll_status.json",
+        Path("config/user_data/my_short_video/aroll_status.json"),  # Common default location
+        Path("config/user_data/my_project/aroll_status.json"),
+        Path(os.getcwd()) / "aroll_status.json"
+    ]
+    
+    for aroll_status_file in aroll_status_files:
+        print(f"Checking A-Roll status file at: {aroll_status_file}")
+        if aroll_status_file.exists():
+            try:
+                with open(aroll_status_file, "r") as f:
+                    content_status["aroll"] = json.load(f)
+                    print(f"Loaded {len(content_status['aroll'])} A-Roll segments from {aroll_status_file}")
+                    break  # Successfully loaded, so break the loop
+            except (json.JSONDecodeError, IOError) as e:
+                print(f"Error loading A-Roll status from {aroll_status_file}: {str(e)}")
+    else:
+        print("No A-Roll status file found in any of the checked locations")
+    
+    # Store in session state
+    st.session_state.content_status = content_status
+    
+    # Print a summary for debugging
+    print(f"Content status summary: {len(content_status['aroll'])} A-Roll segments, {len(content_status['broll'])} B-Roll segments")
+    print(f"A-Roll keys: {list(content_status['aroll'].keys())}")
+    print(f"B-Roll keys: {list(content_status['broll'].keys())}")
+    
+    return content_status
 
 # Function to load segments
 def load_segments():
@@ -404,54 +469,106 @@ def resize_video(clip, target_resolution=(1080, 1920)):
 
 def get_aroll_filepath(segment_id, segment_data):
     """
-    Get the filepath for an A-Roll segment, supporting both naming formats
+    Get A-Roll filepath for a specific segment
     
     Args:
-        segment_id: ID of the segment (e.g., 'segment_0')
-        segment_data: Data for the segment
+        segment_id: ID of the segment
+        segment_data: Segment data object
         
     Returns:
-        str: Path to the A-Roll file if found, None otherwise
+        tuple: (filepath, success, error_message)
     """
-    # Check the file path in the content status
-    if "file_path" in segment_data:
-        file_path = segment_data["file_path"]
-        
-        # If the file path is just a filename without directory, prepend media/a-roll/
-        if not os.path.dirname(file_path):
-            media_path = f"media/a-roll/{file_path}"
-            if os.path.exists(media_path):
-                print(f"Found A-Roll file: {media_path}")
-                return media_path
-        
-        # Check if the provided path exists directly
-        if os.path.exists(file_path):
-            return file_path
+    # First, check the status file for this segment
+    aroll_status = st.session_state.content_status.get("aroll", {}).get(segment_id, {})
     
-    # Try alternative formats if the primary file path doesn't exist
-    segment_num = segment_id.split('_')[-1]
-    prompt_id = segment_data.get('prompt_id', '')
+    print(f"Looking for A-Roll file for {segment_id}")
+    print(f"Status data: {aroll_status}")
     
-    # Different file naming patterns to try
-    patterns = [
-        # Original expected format (short ID)
-        f"media/a-roll/fetched_aroll_segment_{segment_num}_{prompt_id[:8]}.mp4",
-        # Full path with short ID
-        f"{app_root}/media/a-roll/fetched_aroll_segment_{segment_num}_{prompt_id[:8]}.mp4",
-        # HeyGen format
-        f"media/a-roll/heygen_{prompt_id}.mp4",
-        # Full path with HeyGen format
-        f"{app_root}/media/a-roll/heygen_{prompt_id}.mp4"
+    # If we have a local path from the status file, use that
+    if "local_path" in aroll_status and Path(aroll_status["local_path"]).exists():
+        print(f"Found A-Roll file at: {aroll_status['local_path']}")
+        return aroll_status["local_path"], True, None
+    
+    # Next, check media/a-roll directory for segment_id.mp4
+    aroll_file = project_path / "media" / "a-roll" / f"{segment_id}.mp4"
+    if aroll_file.exists():
+        print(f"Found A-Roll file at: {aroll_file}")
+        return str(aroll_file), True, None
+        
+    # Try alternative paths
+    alt_paths = [
+        project_path / "media" / "aroll" / f"{segment_id}.mp4",
+        Path("media") / "a-roll" / f"{segment_id}.mp4",
+        Path("media") / "aroll" / f"{segment_id}.mp4",
+        app_root / "media" / "a-roll" / f"{segment_id}.mp4",
+        app_root / "media" / "aroll" / f"{segment_id}.mp4",
+        # Add these additional potential paths
+        Path(os.getcwd()) / "media" / "a-roll" / f"{segment_id}.mp4",
+        Path(os.getcwd()) / "media" / "aroll" / f"{segment_id}.mp4",
+        Path("/Users/dawarazhar/Desktop/AI-Money-Printer-Shorts/app") / "media" / "a-roll" / f"{segment_id}.mp4",
+        Path("/Users/dawarazhar/Desktop/AI-Money-Printer-Shorts/app") / "media" / "aroll" / f"{segment_id}.mp4"
     ]
     
-    # Try each pattern
-    for pattern in patterns:
-        if os.path.exists(pattern):
-            print(f"Found A-Roll file: {pattern}")
-            return pattern
+    for path in alt_paths:
+        if path.exists():
+            print(f"Found A-Roll file at alternative path: {path}")
+            # Update the status to use this path in the future
+            aroll_status["local_path"] = str(path)
+            st.session_state.content_status["aroll"][segment_id] = aroll_status
+            return str(path), True, None
+    
+    # If not found, check if we need to extract from HeyGen URL
+    if "video_url" in aroll_status and aroll_status["video_url"]:
+        try:
+            # Import HeyGen API helper
+            try:
+                from utils.heygen_api import HeyGenAPI
+            except ImportError:
+                return None, False, f"HeyGen API module not found"
             
-    print(f"A-Roll file not found for {segment_id} with prompt_id {prompt_id}")
-    return None
+            # Create output directory if it doesn't exist
+            output_dir = project_path / "media" / "a-roll"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Download the video
+            api_key = os.environ.get("HEYGEN_API_KEY", "")
+            if not api_key:
+                return None, False, f"HeyGen API key not found in environment variables"
+            
+            heygen_api = HeyGenAPI(api_key)
+            output_path = str(output_dir / f"{segment_id}.mp4")
+            
+            print(f"Downloading A-Roll video from HeyGen URL to: {output_path}")
+            download_result = heygen_api.download_video(aroll_status["video_url"], output_path)
+            
+            if download_result["status"] == "success":
+                # Update status file
+                aroll_status["local_path"] = output_path
+                aroll_status["downloaded"] = True
+                st.session_state.content_status["aroll"][segment_id] = aroll_status
+                
+                # Save updated status to the correct location
+                aroll_status_file = project_path / "aroll_status.json"
+                with open(aroll_status_file, "w") as f:
+                    json.dump(st.session_state.content_status["aroll"], f, indent=2)
+                
+                return output_path, True, None
+            else:
+                return None, False, f"Failed to download video: {download_result.get('message', 'Unknown error')}"
+        except Exception as e:
+            return None, False, f"Exception while downloading video: {str(e)}"
+    
+    # Debug information
+    print(f"Could not find A-Roll file for {segment_id}")
+    print(f"Checked paths:")
+    print(f"  - {aroll_status.get('local_path', 'No local_path in status')}")
+    print(f"  - {aroll_file}")
+    for path in alt_paths:
+        print(f"  - {path}")
+    print(f"Status data: {aroll_status}")
+    
+    # Not found anywhere, return error
+    return None, False, f"A-Roll file for {segment_id} not found. Please make sure you've generated A-Roll videos in the 5A A-Roll Video Production step."
 
 def get_broll_filepath(segment_id, segment_data):
     """
@@ -539,7 +656,7 @@ def create_assembly_sequence():
     total_broll_segments = len(broll_segments)
     
     if total_aroll_segments == 0:
-        return {"status": "error", "message": "No A-Roll segments found"}
+        return {"status": "error", "message": "No A-Roll segments found. Please go to the 5A A-Roll Video Production page to create A-Roll videos first."}
     
     # B-Roll Full (all visuals are B-Roll with A-Roll audio)
     if "B-Roll Full" in selected_sequence:
@@ -565,7 +682,7 @@ def create_assembly_sequence():
                 aroll_data = aroll_segments[aroll_segment_id]
                 broll_data = broll_segments[broll_segment_id]
                 
-                aroll_path = get_aroll_filepath(aroll_segment_id, aroll_data)
+                aroll_path, aroll_success, aroll_error = get_aroll_filepath(aroll_segment_id, aroll_data)
                 broll_path = get_broll_filepath(broll_segment_id, broll_data)
                 
                 if aroll_path and broll_path:
@@ -589,7 +706,7 @@ def create_assembly_sequence():
         # First segment is A-Roll only
         if "segment_0" in aroll_segments:
             aroll_data = aroll_segments["segment_0"]
-            aroll_path = get_aroll_filepath("segment_0", aroll_data)
+            aroll_path, aroll_success, aroll_error = get_aroll_filepath("segment_0", aroll_data)
             
             if aroll_path:
                 print(f"Adding A-Roll segment 0 with path: {aroll_path}")
@@ -619,7 +736,7 @@ def create_assembly_sequence():
                 aroll_data = aroll_segments[aroll_segment_id]
                 broll_data = broll_segments[broll_segment_id]
                 
-                aroll_path = get_aroll_filepath(aroll_segment_id, aroll_data)
+                aroll_path, aroll_success, aroll_error = get_aroll_filepath(aroll_segment_id, aroll_data)
                 broll_path = get_broll_filepath(broll_segment_id, broll_data)
                 
                 if aroll_path and broll_path:
@@ -645,7 +762,7 @@ def create_assembly_sequence():
         # Skip if this A-Roll segment was already used
         if last_segment_id not in used_aroll_segments and last_segment_id in aroll_segments:
             aroll_data = aroll_segments[last_segment_id]
-            aroll_path = get_aroll_filepath(last_segment_id, aroll_data)
+            aroll_path, aroll_success, aroll_error = get_aroll_filepath(last_segment_id, aroll_data)
             
             if aroll_path:
                 print(f"Adding final A-Roll segment with path: {aroll_path}")
@@ -666,7 +783,7 @@ def create_assembly_sequence():
         # First segment is A-Roll only
         if "segment_0" in aroll_segments:
             aroll_data = aroll_segments["segment_0"]
-            aroll_path = get_aroll_filepath("segment_0", aroll_data)
+            aroll_path, aroll_success, aroll_error = get_aroll_filepath("segment_0", aroll_data)
             
             if aroll_path:
                 print(f"Adding A-Roll segment 0 with path: {aroll_path}")
@@ -696,7 +813,7 @@ def create_assembly_sequence():
                 aroll_data = aroll_segments[aroll_segment_id]
                 broll_data = broll_segments[broll_segment_id]
                 
-                aroll_path = get_aroll_filepath(aroll_segment_id, aroll_data)
+                aroll_path, aroll_success, aroll_error = get_aroll_filepath(aroll_segment_id, aroll_data)
                 broll_path = get_broll_filepath(broll_segment_id, broll_data)
                 
                 if aroll_path and broll_path:
@@ -717,7 +834,7 @@ def create_assembly_sequence():
         # Skip if this A-Roll segment was already used
         if last_segment_id not in used_aroll_segments and last_segment_id in aroll_segments:
             aroll_data = aroll_segments[last_segment_id]
-            aroll_path = get_aroll_filepath(last_segment_id, aroll_data)
+            aroll_path, aroll_success, aroll_error = get_aroll_filepath(last_segment_id, aroll_data)
             
             if aroll_path:
                 print(f"Adding final A-Roll segment with path: {aroll_path}")
@@ -761,7 +878,7 @@ def create_assembly_sequence():
             if i in a_roll_positions:
                 if aroll_segment_id in aroll_segments:
                     aroll_data = aroll_segments[aroll_segment_id]
-                    aroll_path = get_aroll_filepath(aroll_segment_id, aroll_data)
+                    aroll_path, aroll_success, aroll_error = get_aroll_filepath(aroll_segment_id, aroll_data)
                     
                     if aroll_path:
                         print(f"Adding A-Roll segment {i} with path: {aroll_path}")
@@ -783,7 +900,7 @@ def create_assembly_sequence():
                     aroll_data = aroll_segments[aroll_segment_id]
                     broll_data = broll_segments[broll_segment_id]
                     
-                    aroll_path = get_aroll_filepath(aroll_segment_id, aroll_data)
+                    aroll_path, aroll_success, aroll_error = get_aroll_filepath(aroll_segment_id, aroll_data)
                     broll_path = get_broll_filepath(broll_segment_id, broll_data)
                     
                     if aroll_path and broll_path:
@@ -806,7 +923,7 @@ def create_assembly_sequence():
         # First segment is A-Roll only
         if "segment_0" in aroll_segments:
             aroll_data = aroll_segments["segment_0"]
-            aroll_path = get_aroll_filepath("segment_0", aroll_data)
+            aroll_path, aroll_success, aroll_error = get_aroll_filepath("segment_0", aroll_data)
             
             if aroll_path:
                 print(f"Adding A-Roll segment 0 with path: {aroll_path}")
@@ -836,7 +953,7 @@ def create_assembly_sequence():
                 aroll_data = aroll_segments[aroll_segment_id]
                 broll_data = broll_segments[broll_segment_id]
                 
-                aroll_path = get_aroll_filepath(aroll_segment_id, aroll_data)
+                aroll_path, aroll_success, aroll_error = get_aroll_filepath(aroll_segment_id, aroll_data)
                 broll_path = get_broll_filepath(broll_segment_id, broll_data)
                 
                 if aroll_path and broll_path:
@@ -989,11 +1106,22 @@ def assemble_video():
         sequence_result = create_assembly_sequence()
         
     if sequence_result["status"] != "success":
-        st.error(sequence_result.get("message", "Failed to create assembly sequence"))
-        return
+        error_message = sequence_result.get("message", "Failed to create assembly sequence")
+        st.error(error_message)
         
-    assembly_sequence = sequence_result["sequence"]
+        # Add navigation button if no A-Roll segments found
+        if "No A-Roll segments found" in error_message:
+            st.warning("You need to generate A-Roll videos in the 5A page first.")
+            
+            # Add button to navigate to 5A page
+            if st.button("Go to A-Roll Video Production", type="primary"):
+                st.switch_page("pages/5A_ARoll_Video_Production.py")
+        
+        return
     
+    # Get the assembly sequence from the result
+    assembly_sequence = sequence_result["sequence"]
+        
     # Check for audio overlaps and warn the user
     has_overlaps = check_for_audio_overlaps(assembly_sequence)
     if has_overlaps:
@@ -1307,7 +1435,7 @@ if content_status and segments:
             aroll_items = []
             for segment_id, segment_data in aroll_segments.items():
                 segment_num = int(segment_id.split("_")[-1])
-                filepath = get_aroll_filepath(segment_id, segment_data)
+                filepath, success, error = get_aroll_filepath(segment_id, segment_data)
                 if filepath:
                     aroll_items.append({
                         "segment_id": segment_id,
@@ -1333,7 +1461,7 @@ if content_status and segments:
             broll_items.sort(key=lambda x: x["segment_num"])
             
             if not aroll_items:
-                st.error("No valid A-Roll files found. Please check Content Production status.")
+                st.error("No valid A-Roll files found. Please check 5A A-Roll Video Production status.")
                 st.stop()
                 
             st.session_state.available_segments = {
@@ -1761,3 +1889,11 @@ if "content_status" not in st.session_state:
         update_session_state_with_defaults(st.session_state)
     else:
         st.session_state.content_status = {"aroll": {}, "broll": {}}
+
+# Add step navigation
+st.markdown("---")
+render_step_navigation(
+    current_step=7,
+    prev_step_path="pages/5B_BRoll_Video_Production.py",
+    next_step_path="pages/7_Autocaptions.py"
+)
