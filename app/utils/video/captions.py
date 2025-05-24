@@ -554,7 +554,7 @@ def get_system_font(font_name):
             font_path = "/System/Library/Fonts/Supplemental/Impact.ttf"
             if os.path.exists(font_path):
                 return font_path
-        
+    
         # Fallback system fonts on macOS
         fallbacks = [
             "/System/Library/Fonts/Helvetica.ttc",
@@ -614,10 +614,10 @@ def make_frame_with_text(frame_img, text, words_with_times, current_time, style,
                 apply_audio_reactive_text,
                 apply_character_animation
             )
-            
+    
             # Get font path
             font_path = get_system_font(style.get("font", "Arial Bold.ttf"))
-            
+    
             # Get or compute font size
             font_size = style.get("font_size", 40)
             
@@ -670,7 +670,7 @@ def make_frame_with_text(frame_img, text, words_with_times, current_time, style,
     
     # Get font - either from style or use a default
     font_path = get_system_font(style.get("font", "Arial Bold.ttf"))
-    
+            
     # Get or compute font size
     font_size = style.get("font_size", int(height * 0.05))  # 5% of height as default
     
@@ -906,18 +906,18 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
                     
                     # Update the last end time
                     last_end_time = end_time
-                    
+                
                     # If at the end of the segment or last word, add a blank entry after a pause
-                    if len(current_segment) >= 7 or i == len(words) - 1:
-                        # Stay visible for a bit after the word ends
+                if len(current_segment) >= 7 or i == len(words) - 1:
+                    # Stay visible for a bit after the word ends
                         stay_visible = min(0.5, end_time - start_time)
                         animation_data.append((end_time + stay_visible, "", None))
                         last_end_time = end_time + stay_visible
-                
-                # Ensure we cover the full video duration
-                if video.duration > last_end_time:
-                    animation_data.append((last_end_time, "", None))
-                    animation_data.append((video.duration, "", None))
+            
+            # Ensure we cover the full video duration
+            if video.duration > last_end_time:
+                animation_data.append((last_end_time, "", None))
+                animation_data.append((video.duration, "", None))
             
             # Debug the first few animation data entries
             print("DEBUG: Animation data (first 10 entries):")
@@ -962,7 +962,7 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
                     if current_text:
                         return add_caption_to_frame(
                             frame_img, 
-                            current_text,
+                            current_text, 
                             current_word_info, 
                             t,
                             style
@@ -1005,7 +1005,7 @@ def add_captions_to_video(video_path, output_path=None, style_name="tiktok", mod
                     if subtitle_time > t:
                         break
                     text = subtitle_text
-                
+                    
                 if text:
                     return add_caption_to_frame(
                         frame,
