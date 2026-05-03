@@ -1,32 +1,39 @@
-"""Application configuration loaded from environment variables."""
+"""Legacy module-level config constants.
 
-import os
+Kept for backward compatibility with pages that import:
+    from config import COMFYUI_IMAGE_API_URL  # etc.
+
+New code should use the typed singleton instead:
+    from app.core.config import config_manager
+    config_manager.comfyui().image_api_url
+"""
+
 from pathlib import Path
-from dotenv import load_dotenv
 
-# Load .env from project root
-_env_path = Path(__file__).resolve().parent.parent.parent / ".env"
-load_dotenv(_env_path)
+from app.core.config import config_manager
 
-# --- ComfyUI Configuration ---
-COMFYUI_IMAGE_API_URL = os.getenv("COMFYUI_IMAGE_API_URL", "http://127.0.0.1:8000")
-COMFYUI_VIDEO_API_URL = os.getenv("COMFYUI_VIDEO_API_URL", "http://127.0.0.1:8001")
-COMFYUI_WS_HOST = os.getenv("COMFYUI_WS_HOST", "127.0.0.1")
-COMFYUI_WS_PORT = os.getenv("COMFYUI_WS_PORT", "8000")
+_cfg = config_manager.config
 
-# --- Ollama Configuration ---
-OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://127.0.0.1:11434/api")
+# ── ComfyUI ────────────────────────────────────────────────────────────────
+COMFYUI_IMAGE_API_URL = _cfg.comfyui.image_api_url
+COMFYUI_VIDEO_API_URL = _cfg.comfyui.video_api_url
+COMFYUI_WS_HOST = _cfg.comfyui.ws_host
+COMFYUI_WS_PORT = str(_cfg.comfyui.ws_port)
 
-# --- HeyGen Configuration ---
-HEYGEN_API_KEY = os.getenv("HEYGEN_API_KEY", "")
+# ── Ollama ─────────────────────────────────────────────────────────────────
+OLLAMA_API_URL = _cfg.ollama.api_url
 
-# --- Replicate Configuration ---
-REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN", "")
+# ── HeyGen ─────────────────────────────────────────────────────────────────
+HEYGEN_API_KEY = _cfg.heygen.api_key
 
-# --- Paths ---
+# ── Replicate ──────────────────────────────────────────────────────────────
+REPLICATE_API_TOKEN = _cfg.replicate.api_token
+
+# ── Paths ──────────────────────────────────────────────────────────────────
 APP_DIR = Path(__file__).resolve().parent.parent
 PROJECT_ROOT = APP_DIR.parent
 WORKFLOWS_DIR = APP_DIR / "workflows"
 FONTS_DIR = APP_DIR / "fonts"
 MEDIA_DIR = APP_DIR / "media"
 USER_DATA_DIR = APP_DIR / "config" / "user_data"
+TEMPLATES_DIR = APP_DIR / "templates"

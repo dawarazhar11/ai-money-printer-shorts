@@ -1,0 +1,77 @@
+project_name: ReelForge
+
+# ─── LLM (any OpenAI-compatible endpoint: OpenAI, Qwen, DeepSeek, Moonshot) ──
+llm:
+  api_key: ""
+  base_url: ""        # e.g. https://api.openai.com/v1
+  model: ""           # e.g. gpt-4o-mini
+
+# ─── Ollama (local LLM, free; used for script segmentation + B-Roll prompts) ─
+ollama:
+  api_url: http://127.0.0.1:11434/api
+  model: llama3
+
+# ─── TTS ────────────────────────────────────────────────────────────────────
+# inference_mode: local (Edge-TTS, free) | comfyui (workflow) | heygen (avatar)
+tts:
+  inference_mode: local
+  local:
+    voice: en-US-AriaNeural
+    speed: 1.0
+  comfyui:
+    default_workflow: null
+
+# ─── ComfyUI / RunningHub (B-Roll image + video generation) ─────────────────
+comfyui:
+  image_api_url: http://127.0.0.1:8000
+  video_api_url: http://127.0.0.1:8001
+  ws_host: 127.0.0.1
+  ws_port: 8000
+  api_key: null
+  runninghub_api_key: null
+  runninghub_concurrent_limit: 1
+  runninghub_instance_type: null   # "plus" for 48GB VRAM
+  image:
+    default_workflow: null
+    prompt_prefix: ""
+  video:
+    default_workflow: null
+    prompt_prefix: ""
+
+# ─── HeyGen (avatar A-Roll, optional) ───────────────────────────────────────
+heygen:
+  api_key: ""
+  default_avatar_id: ""
+  default_voice_id: ""
+  background_color: "#008000"
+
+# ─── Replicate (cloud B-Roll, optional) ─────────────────────────────────────
+replicate:
+  api_token: ""
+  default_image_model: stability-ai/sdxl
+  default_video_model: wavespeedai/wan-2.1-t2v-480p
+
+# ─── Publishing ─────────────────────────────────────────────────────────────
+publishing:
+  youtube:
+    client_secret_path: config/client_secret.json
+    token_cache_path: config/youtube_token.json
+    default_privacy: private
+  tiktok:
+    client_key: ""
+    client_secret: ""
+    redirect_uri: http://localhost:8080/tiktok/callback
+  instagram:
+    access_token: ""
+    business_account_id: ""
+
+# ─── HTML→video frame templates ─────────────────────────────────────────────
+template:
+  default_template: 1080x1920/default.html
+  templates_dir: app/templates
+
+# ─── Storage layout ─────────────────────────────────────────────────────────
+storage:
+  output_dir: output
+  media_dir: media
+  user_data_dir: app/config/user_data
