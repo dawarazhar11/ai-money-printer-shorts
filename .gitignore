@@ -32,12 +32,13 @@ Thumbs.db
 *.sqlite3
 *.db
 
-# Generated media (large files)
+# Generated media (large files) -- but ship the bundled BGM library
 *.mp4
 *.mov
 *.avi
 *.wav
 *.mp3
+!bgm/*.mp3
 
 # Test outputs
 test_outputs/

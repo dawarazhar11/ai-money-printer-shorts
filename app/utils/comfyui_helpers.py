@@ -18,17 +18,20 @@ except ImportError:
 
 # Load workflow files
 def load_workflow(workflow_type="video"):
-    """Load workflow from JSON file"""
+    """Load workflow from JSON file (resolved across selfhost/cloud/legacy dirs)."""
     try:
-        if workflow_type == "video":
-            workflow_file = "wan.json"
-        else:
-            workflow_file = "image_homepc.json"
-            
-        with open(workflow_file, "r") as f:
+        from app.services.workflows import resolve as _resolve_workflow
+    except Exception:
+        _resolve_workflow = None
+
+    workflow_file = "wan.json" if workflow_type == "video" else "image_homepc.json"
+
+    try:
+        path = _resolve_workflow(workflow_file) if _resolve_workflow else workflow_file
+        with open(path, "r") as f:
             workflow = json.load(f)
-            print(f"✅ Loaded {workflow_type} workflow from {workflow_file} with {len(workflow)} nodes")
-            return workflow
+        print(f"Loaded {workflow_type} workflow from {path} ({len(workflow)} nodes)")
+        return workflow
     except Exception as e:
         st.error(f"Failed to load workflow file: {str(e)}")
         return None

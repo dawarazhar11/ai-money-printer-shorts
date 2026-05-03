@@ -74,7 +74,7 @@ class ProjectConfig(BaseModel):
 
     # Caption / styling
     caption_effect: Literal["fade", "scale", "combined", "none"] = "combined"
-    frame_template: str = "1080x1920/default.html"
+    frame_template: str = "1080x1920/image_default.html"
 
     # Audio
     bgm_path: Optional[str] = Field(default=None, description="Path to background music")

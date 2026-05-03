@@ -148,7 +148,7 @@ class PublishingConfig(BaseModel):
 class TemplateConfig(BaseModel):
     """HTML→video frame templates (ported from Pixelle)."""
 
-    default_template: str = Field(default="1080x1920/default.html")
+    default_template: str = Field(default="1080x1920/image_default.html")
     templates_dir: str = Field(default="app/templates")
 
 
