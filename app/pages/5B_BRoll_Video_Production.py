@@ -10,24 +10,18 @@ import threading
 from datetime import datetime
 import random
 
-# Import custom helper module for ComfyUI integration
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../app"))
-import comfyui_helpers
-
 # Fix import paths for components and utilities
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
-    print(f"Added {parent_dir} to path")
 
-# Try to import local modules# Try to import local modules
 try:
     from components.custom_navigation import render_custom_sidebar, render_horizontal_navigation, render_step_navigation
     from components.progress import render_step_header
     from utils.session_state import get_settings, get_project_path, mark_step_complete
     from utils.progress_tracker import start_comfyui_tracking
-    print("Successfully imported local modules")
+    from utils import comfyui_helpers
 except ImportError as e:
     st.error(f"Failed to import local modules: {str(e)}")
     st.stop()

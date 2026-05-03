@@ -53,3 +53,26 @@ app/models/vosk/
 *credentials*.json
 *client_secret*.json
 *token*.json
+
+# Backup / scratch files (use git history instead)
+*.bak
+*.bak[0-9]
+*.bak.*
+*.original
+*.orig
+*.broken
+*.broken.bak
+
+# Local config (user-driven, not committed)
+config.yaml
+config.local.yaml
+
+# uv / lockfiles for app users
+.uv/
+
+# Pipeline output
+output/
+data/
+
+# Playwright browser cache
+.playwright/

@@ -1,25 +1,9 @@
-# Core framework
-streamlit>=1.30.0
-
-# Video & media processing
-moviepy>=1.0.3
-opencv-python>=4.7.0
-pillow>=10.0.0
-pydub>=0.25.1
-imageio-ffmpeg>=0.4.8
-
-# Data & computation
-numpy>=1.24.0
-pandas>=2.0.0
-matplotlib>=3.7.0
-
-# Networking & APIs
-requests>=2.28.1
-websocket-client>=1.6.0
-replicate>=0.25.0
-
-# Configuration
-python-dotenv>=1.0.0
-
-# File watching (Streamlit dev)
-watchdog>=3.0.0
+# DEPRECATED: ReelForge now uses pyproject.toml.
+#
+# Install with one of:
+#   pip install -e .            # editable install
+#   pip install -e ".[dev]"     # with dev tools
+#   uv sync                     # if you use uv (recommended)
+#
+# This file is kept as a no-op pointer for legacy CI and IDE detection.
+-e .
