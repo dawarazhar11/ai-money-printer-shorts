@@ -67,7 +67,7 @@ publishing:
 
 # ─── HTML→video frame templates ─────────────────────────────────────────────
 template:
-  default_template: 1080x1920/default.html
+  default_template: 1080x1920/image_default.html
   templates_dir: app/templates
 
 # ─── Storage layout ─────────────────────────────────────────────────────────

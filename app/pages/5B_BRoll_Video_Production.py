@@ -131,13 +131,21 @@ project_path = get_project_path()
 
 # Constants
 from config import OLLAMA_API_URL, COMFYUI_IMAGE_API_URL, COMFYUI_VIDEO_API_URL, WORKFLOWS_DIR
+_SELFHOST = WORKFLOWS_DIR / "selfhost"
 JSON_TEMPLATES = {
     "image": {
-        "default": str(WORKFLOWS_DIR / "image_homepc.json"),
-        "lora": str(WORKFLOWS_DIR / "lora.json"),
-        "flux": str(WORKFLOWS_DIR / "flux_dev_checkpoint.json")
+        "default": str(_SELFHOST / "image_homepc.json"),
+        "lora": str(_SELFHOST / "lora.json"),
+        "flux": str(_SELFHOST / "flux_dev_checkpoint.json"),
+        "flux_pixelle": str(_SELFHOST / "image_flux.json"),
+        "qwen": str(_SELFHOST / "image_qwen.json"),
+        "nano_banana": str(_SELFHOST / "image_nano_banana.json"),
     },
-    "video": str(WORKFLOWS_DIR / "wan.json")
+    "video": str(_SELFHOST / "wan.json"),
+    "video_alts": {
+        "wan": str(_SELFHOST / "wan.json"),
+        "wan_2_1_fusionx": str(_SELFHOST / "video_wan2.1_fusionx.json"),
+    },
 }
 
 # Initialize session state variables
