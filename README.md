@@ -1,4 +1,4 @@
-# RealForge
+# ReelForge
 
 An end-to-end automation platform for creating short-form videos. Takes you from script to published content across YouTube, TikTok, and Instagram with AI-powered generation at every step.
 
