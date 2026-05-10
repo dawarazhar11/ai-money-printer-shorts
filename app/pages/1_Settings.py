@@ -10,7 +10,7 @@ from components.navigation import render_workflow_navigation
 
 # Set page configuration
 st.set_page_config(
-    page_title="Video Settings | RealForge",
+    page_title="Video Settings | ReelForge",
     page_icon="🎬",
     layout="centered",
     initial_sidebar_state="expanded"
@@ -200,4 +200,4 @@ if "settings" in st.session_state or os.path.exists("config/user_data/project_se
     
     # Next button
     if st.button("Next: Blueprint Setup →", type="primary"):
-        st.switch_page("pages/2_Blueprint.py") 
+        st.switch_page("pages/2_Blueprint.py")
