@@ -1,121 +1,102 @@
-"""Video assembly service — wraps the moviepy/ffmpeg utilities into a clean interface."""
-from __future__ import annotations
-
-import os
+import subprocess
+import tempfile
 from pathlib import Path
-from typing import Callable, Optional
+from typing import List, Optional
 
-from app.core.config import config_manager
 from app.core.logging import get_logger
-from app.core.models import MediaAsset, ProgressEvent
+from app.core.models import MediaAsset
 
-logger = get_logger("services.video_assembly")
+logger = get_logger("services.video_assembly_service")
 
-_DEFAULT_RESOLUTION = (1080, 1920)
+try:
+    from utils.video.simple_assembly import simple_assemble_video, check_ffmpeg, image_to_video
+    _SIMPLE_ASSEMBLY_AVAILABLE = True
+except ImportError:
+    _SIMPLE_ASSEMBLY_AVAILABLE = False
+    logger.warning("utils.video.simple_assembly not importable")
+
+try:
+    from utils.video.assembly import assemble_video as _moviepy_assemble, MOVIEPY_AVAILABLE
+except ImportError:
+    _moviepy_assemble = None
+    MOVIEPY_AVAILABLE = False
+
+
+def _ffmpeg_concat(video_files: List[str], output_path: str, audio_path: Optional[str] = None) -> None:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        concat_file = f.name
+        for vf in video_files:
+            escaped = vf.replace("'", "'\\''")
+            f.write(f"file '{escaped}'\n")
+
+    cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_file]
+    if audio_path:
+        cmd += ["-i", audio_path, "-c:v", "copy", "-c:a", "aac", "-map", "0:v:0", "-map", "1:a:0"]
+    else:
+        cmd += ["-c", "copy"]
+    cmd.append(output_path)
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    Path(concat_file).unlink(missing_ok=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg concat failed: {result.stderr}")
 
 
 class VideoAssemblyService:
-    """Assemble A-Roll and B-Roll segments into a single video file."""
-
     def assemble(
         self,
-        sequence: list[dict],
-        target_resolution: tuple[int, int] = _DEFAULT_RESOLUTION,
-        output_dir: Optional[Path] = None,
-        progress_cb: Optional[Callable[[ProgressEvent], None]] = None,
+        sequence: List[dict],
+        output_path: str,
+        target_resolution: tuple = (1080, 1920),
     ) -> MediaAsset:
-        """Assemble *sequence* into a single video.
-
-        Each item in *sequence* is a dict with:
-          type: "aroll_full" | "broll_with_aroll_audio"
-          aroll_path: str
-          broll_path: str | None
-          segment_id: str
-
-        Tries MoviePy first, falls back to simple FFmpeg assembly.
-        """
         if not sequence:
-            raise ValueError("Assembly sequence is empty")
+            raise ValueError("Cannot assemble empty sequence")
 
-        if output_dir is None:
-            output_dir = config_manager.config.user_data_dir / "output"
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        logger.info("Assembling %d clips -> %s", len(sequence), output_path)
 
-        def _cb(progress: float, msg: str) -> None:
-            if progress_cb:
-                progress_cb(ProgressEvent(step="assembly", progress=progress, message=msg))
-
-        _cb(0.0, "Starting assembly")
-
-        # Try primary MoviePy assembler
-        result = self._try_moviepy(sequence, target_resolution, output_dir, _cb)
-        if result is None:
-            logger.warning("MoviePy assembly failed, trying ffmpeg simple assembly")
-            result = self._try_simple(sequence, target_resolution, output_dir, _cb)
-
-        if result is None:
-            raise RuntimeError("Both assembly methods failed — check logs for details")
-
-        _cb(1.0, "Assembly complete")
-        logger.info(f"Assembly output: {result}")
-        return MediaAsset(file_path=result, mime_type="video/mp4")
-
-    # ------------------------------------------------------------------
-    def _try_moviepy(
-        self,
-        sequence: list[dict],
-        resolution: tuple[int, int],
-        output_dir: Path,
-        cb: Callable,
-    ) -> Optional[str]:
-        try:
-            import sys
-            sys.path.insert(0, str(config_manager.config.app_dir))
-            from utils.video.assembly import assemble_video, MOVIEPY_AVAILABLE
-
-            if not MOVIEPY_AVAILABLE:
-                return None
-
-            from datetime import datetime
-            output_path = str(output_dir / f"assembled_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4")
-            result = assemble_video(
-                sequence=sequence,
-                target_resolution=resolution,
-                output_dir=str(output_dir),
-                progress_callback=cb,
-            )
-            if isinstance(result, dict) and result.get("status") == "success":
-                return result.get("output_path")
-            return None
-        except Exception as exc:
-            logger.error(f"MoviePy assembly error: {exc}")
-            return None
-
-    def _try_simple(
-        self,
-        sequence: list[dict],
-        resolution: tuple[int, int],
-        output_dir: Path,
-        cb: Callable,
-    ) -> Optional[str]:
-        try:
-            import sys
-            sys.path.insert(0, str(config_manager.config.app_dir))
-            from utils.video.simple_assembly import simple_assemble_video
-
+        if _SIMPLE_ASSEMBLY_AVAILABLE:
             result = simple_assemble_video(
                 sequence=sequence,
-                output_path=None,
-                target_resolution=resolution,
-                progress_callback=cb,
+                output_path=output_path,
+                target_resolution=target_resolution,
             )
             if isinstance(result, dict) and result.get("status") == "success":
-                return result.get("output_path")
-            return None
-        except Exception as exc:
-            logger.error(f"Simple assembly error: {exc}")
-            return None
+                return MediaAsset(path=output_path, asset_type="video")
+            if isinstance(result, dict) and result.get("status") == "error":
+                raise RuntimeError(result.get("message", "Assembly failed"))
+
+        video_files = [item["video_path"] for item in sequence if Path(item["video_path"]).exists()]
+        if not video_files:
+            raise RuntimeError("No valid video files in sequence")
+        _ffmpeg_concat(video_files, output_path)
+        return MediaAsset(path=output_path, asset_type="video")
+
+    def image_to_clip(self, image_path: str, output_path: str, duration: float = 5.0) -> MediaAsset:
+        if _SIMPLE_ASSEMBLY_AVAILABLE:
+            from utils.video.simple_assembly import image_to_video
+            ok = image_to_video(image_path, output_path, duration=duration)
+            if ok:
+                return MediaAsset(path=output_path, asset_type="video")
+        cmd = [
+            "ffmpeg", "-y", "-loop", "1", "-i", image_path,
+            "-t", str(duration), "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            output_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"image_to_video failed: {result.stderr}")
+        return MediaAsset(path=output_path, asset_type="video", duration=duration)
+
+    def merge_audio(self, video_path: str, audio_path: str, output_path: str) -> MediaAsset:
+        cmd = [
+            "ffmpeg", "-y", "-i", video_path, "-i", audio_path,
+            "-c:v", "copy", "-c:a", "aac", "-map", "0:v:0", "-map", "1:a:0",
+            "-shortest", output_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"merge_audio failed: {result.stderr}")
+        return MediaAsset(path=output_path, asset_type="video")
 
 
 video_assembly_service = VideoAssemblyService()

@@ -1,19 +1,14 @@
-"""Loguru wrapper for ReelForge."""
+import logging
 import sys
-from loguru import logger as _root_logger
-
-_configured = False
 
 
-def get_logger(name: str):
-    """Return a loguru logger bound to the given name."""
-    global _configured
-    if not _configured:
-        _root_logger.remove()
-        _root_logger.add(
-            sys.stderr,
-            format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{extra[name]}</cyan> — {message}",
-            level="DEBUG",
+def get_logger(name: str) -> logging.Logger:
+    logger = logging.getLogger(name)
+    if not logger.handlers:
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s | %(levelname)-8s | %(name)s | %(message)s")
         )
-        _configured = True
-    return _root_logger.bind(name=name)
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+    return logger

@@ -1,68 +1,63 @@
-"""Edge-TTS service with tenacity retries."""
-from __future__ import annotations
-
 import asyncio
 import tempfile
 from pathlib import Path
-
-from tenacity import AsyncRetrying, stop_after_attempt, wait_random_exponential
+from typing import Optional
 
 from app.core.logging import get_logger
 from app.core.models import MediaAsset
 
-logger = get_logger("services.tts")
+logger = get_logger("services.tts_service")
 
-_DEFAULT_VOICE = "en-US-AriaNeural"
-_DEFAULT_SPEED = "+0%"
+try:
+    import edge_tts
+    _EDGE_TTS_AVAILABLE = True
+except ImportError:
+    _EDGE_TTS_AVAILABLE = False
+    logger.warning("edge-tts not installed — TTS synthesis unavailable")
+
+try:
+    from tenacity import retry, stop_after_attempt, wait_random_exponential
+    _TENACITY_AVAILABLE = True
+except ImportError:
+    _TENACITY_AVAILABLE = False
+
+
+def _retry(fn):
+    if _TENACITY_AVAILABLE:
+        from tenacity import retry as _r, stop_after_attempt, wait_random_exponential
+        return _r(stop=stop_after_attempt(5), wait=wait_random_exponential(multiplier=1, max=30))(fn)
+    return fn
 
 
 class EdgeTTSService:
-    async def synthesize(
+    DEFAULT_VOICE = "en-US-AriaNeural"
+    DEFAULT_SPEED = "+0%"
+
+    def synthesize_sync(
         self,
         text: str,
-        voice: str = _DEFAULT_VOICE,
-        speed: str = _DEFAULT_SPEED,
-        output_path: str | None = None,
+        voice: Optional[str] = None,
+        speed: Optional[str] = None,
+        output_path: Optional[str] = None,
     ) -> MediaAsset:
-        import edge_tts
+        if not _EDGE_TTS_AVAILABLE:
+            raise RuntimeError("edge-tts is not installed. Run: pip install edge-tts")
+
+        voice = voice or self.DEFAULT_VOICE
+        speed = speed or self.DEFAULT_SPEED
 
         if output_path is None:
             tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
             output_path = tmp.name
             tmp.close()
 
-        logger.info(f"TTS synthesize voice={voice} len={len(text)}")
-        async for attempt in AsyncRetrying(
-            stop=stop_after_attempt(5),
-            wait=wait_random_exponential(multiplier=1, min=1, max=30),
-            reraise=True,
-        ):
-            with attempt:
-                communicate = edge_tts.Communicate(text=text, voice=voice, rate=speed)
-                await communicate.save(output_path)
+        logger.info("Synthesizing TTS: voice=%s speed=%s -> %s", voice, speed, output_path)
+        asyncio.run(self._synthesize(text, voice, speed, output_path))
+        return MediaAsset(path=output_path, asset_type="audio")
 
-        logger.info(f"TTS done → {output_path}")
-        return MediaAsset(file_path=output_path, mime_type="audio/mpeg")
-
-    def synthesize_sync(
-        self,
-        text: str,
-        voice: str = _DEFAULT_VOICE,
-        speed: str = _DEFAULT_SPEED,
-        output_path: str | None = None,
-    ) -> MediaAsset:
-        """Blocking wrapper around the async synthesize method."""
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                    future = pool.submit(asyncio.run, self.synthesize(text, voice, speed, output_path))
-                    return future.result()
-            else:
-                return loop.run_until_complete(self.synthesize(text, voice, speed, output_path))
-        except RuntimeError:
-            return asyncio.run(self.synthesize(text, voice, speed, output_path))
+    async def _synthesize(self, text: str, voice: str, speed: str, output_path: str) -> None:
+        communicate = edge_tts.Communicate(text, voice, rate=speed)
+        await communicate.save(output_path)
 
 
 edge_tts_service = EdgeTTSService()

@@ -1,105 +1,113 @@
-"""Caption service — registry pattern over typography_effects modules."""
-from __future__ import annotations
-
-import importlib
+import sys
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Dict, Optional
 
-from app.core.config import config_manager
 from app.core.logging import get_logger
 from app.core.models import MediaAsset
 
-logger = get_logger("services.caption")
+logger = get_logger("services.caption_service")
 
-# ---------------------------------------------------------------------------
-# Registry of typography effect modules
-# Each entry maps a style-key to the module dotted-path and the render fn name.
-# ---------------------------------------------------------------------------
-_EFFECT_REGISTRY: dict[str, dict[str, str]] = {
-    "fade": {
-        "module": "app.utils.video.typography_effects_fade",
-        "render_fn": "render_text_with_fade_effect",
-    },
-    "scale": {
-        "module": "app.utils.video.typography_effects_scale",
-        "render_fn": "render_text_with_scale_effect",
-    },
-    "combined": {
-        "module": "app.utils.video.typography_effects_combined",
-        "render_fn": "render_text_with_combined_effects",
-    },
-}
+_APP_DIR = Path(__file__).resolve().parent.parent
+if str(_APP_DIR) not in sys.path:
+    sys.path.insert(0, str(_APP_DIR))
 
+try:
+    from utils.video.captions import add_captions_to_video, get_available_caption_styles, CAPTION_STYLES
+    _CAPTIONS_AVAILABLE = True
+except ImportError:
+    _CAPTIONS_AVAILABLE = False
+    logger.warning("utils.video.captions not importable")
 
-def list_effects() -> list[str]:
-    return list(_EFFECT_REGISTRY.keys())
+try:
+    from utils.audio.transcription import transcribe_video
+    _TRANSCRIPTION_AVAILABLE = True
+except ImportError:
+    _TRANSCRIPTION_AVAILABLE = False
+    logger.warning("utils.audio.transcription not importable")
 
 
-def get_effect_fn(effect_key: str) -> Optional[Callable]:
-    """Import and return the render function for *effect_key*, or None if unavailable."""
-    spec = _EFFECT_REGISTRY.get(effect_key)
-    if spec is None:
-        logger.warning(f"Unknown typography effect: {effect_key}")
-        return None
+# --- Typography effect registry (Pixelle pipeline registry pattern) ---
+_TYPOGRAPHY_REGISTRY: Dict[str, Callable] = {}
+
+
+def register_typography_effect(name: str, fn: Callable) -> None:
+    _TYPOGRAPHY_REGISTRY[name] = fn
+
+
+def list_typography_effects() -> list:
+    return list(_TYPOGRAPHY_REGISTRY.keys())
+
+
+def _load_builtin_effects() -> None:
     try:
-        mod = importlib.import_module(spec["module"])
-        return getattr(mod, spec["render_fn"])
-    except (ImportError, AttributeError) as exc:
-        logger.warning(f"Could not load effect {effect_key}: {exc}")
-        return None
+        from utils.video.typography_effects_fade import apply_fade_effect
+        register_typography_effect("fade", apply_fade_effect)
+    except (ImportError, Exception):
+        pass
+    try:
+        from utils.video.typography_effects_scale import apply_scale_effect
+        register_typography_effect("scale", apply_scale_effect)
+    except (ImportError, Exception):
+        pass
+    # typography_effects_combined calls sys.exit(1) on import failure — skip silently
+    try:
+        import importlib
+        mod = importlib.import_module("utils.video.typography_effects_combined")
+        fn = getattr(mod, "render_word_with_combined_effects", None)
+        if fn:
+            register_typography_effect("combined", fn)
+    except (ImportError, SystemExit, Exception):
+        pass
+
+
+_load_builtin_effects()
 
 
 class CaptionService:
-    """Orchestrate transcription → caption overlay → export."""
+    def transcribe(self, video_path: str, engine: str = "whisper", model_size: str = "base") -> dict:
+        if not _TRANSCRIPTION_AVAILABLE:
+            raise RuntimeError("Transcription dependencies not installed")
+        logger.info("Transcribing: %s (engine=%s model=%s)", video_path, engine, model_size)
+        return transcribe_video(video_path, engine=engine, model_size=model_size)
 
-    def add_captions(
+    def apply_captions(
         self,
         video_path: str,
-        output_path: Optional[str] = None,
-        style_name: str = "tiktok",
+        output_path: str,
+        style: str = "tiktok",
         animation_style: str = "word_by_word",
-        model_size: str = "base",
-        transcription_engine: str = "auto",
-        font_size: int = 50,
-        extra_params: Optional[dict[str, Any]] = None,
-        progress_cb: Optional[Callable[[float, str], None]] = None,
+        transcription: Optional[dict] = None,
+        params: Optional[Dict[str, Any]] = None,
     ) -> MediaAsset:
-        """Add animated captions to *video_path* and return the output MediaAsset."""
-        import sys
-        sys.path.insert(0, str(config_manager.config.app_dir))
+        if not _CAPTIONS_AVAILABLE:
+            raise RuntimeError("Caption dependencies not installed")
+        params = params or {}
+        logger.info("Applying captions: %s style=%s anim=%s -> %s",
+                    video_path, style, animation_style, output_path)
 
-        from app.utils.video.captions import add_captions_to_video
-
-        if output_path is None:
-            stem = Path(video_path).stem
-            output_path = str(Path(video_path).parent / f"{stem}_captioned.mp4")
-
-        effect_params = extra_params or {}
-        if font_size:
-            effect_params["font_size"] = font_size
-
-        logger.info(f"Adding captions: style={style_name} animation={animation_style} engine={transcription_engine}")
-
+        effect_fn = _TYPOGRAPHY_REGISTRY.get(animation_style)
         result = add_captions_to_video(
             video_path=video_path,
             output_path=output_path,
-            style_name=style_name,
-            model_size=model_size,
-            transcription_engine=transcription_engine,
+            style=style,
             animation_style=animation_style,
-            effect_params=effect_params,
-            progress_callback=progress_cb,
+            transcription=transcription,
+            typography_effect=effect_fn,
+            **params,
         )
+        if isinstance(result, dict) and result.get("status") == "error":
+            raise RuntimeError(result.get("message", "Caption failed"))
+        return MediaAsset(path=output_path, asset_type="video")
 
-        if isinstance(result, dict):
-            if result.get("status") != "success":
-                raise RuntimeError(f"Caption generation failed: {result.get('message')}")
-            out = result.get("output_path", output_path)
-        else:
-            out = str(result) if result else output_path
+    def list_styles(self) -> list:
+        if not _CAPTIONS_AVAILABLE:
+            return []
+        return get_available_caption_styles()
 
-        logger.info(f"Captions done → {out}")
-        return MediaAsset(file_path=out, mime_type="video/mp4")
+    def list_animation_styles(self) -> list:
+        built_in = ["word_by_word", "fade_in_out", "scale_pulse", "color_highlight", "single_word_focus"]
+        registry_styles = list_typography_effects()
+        return sorted(set(built_in + registry_styles))
 
 
 caption_service = CaptionService()
