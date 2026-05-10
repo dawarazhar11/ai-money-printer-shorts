@@ -20,7 +20,7 @@ def get_step_progress():
 def render_custom_sidebar():
     """Render a custom sidebar navigation with manually specified items"""
     # Render logo and app name
-    st.sidebar.title("🎬 RealForge")
+    st.sidebar.title("🎬 ReelForge")
     st.sidebar.caption("AI Video Shorts Generator")
     
     # Render progress bar
@@ -70,7 +70,7 @@ def render_custom_sidebar():
         },
         {
             "name": "Video Assembly",
-            "icon": "🎞️",
+            "icon": "🇯️",
             "path": "pages/6_Video_Assembly.py",
             "step": 7
         },
@@ -156,7 +156,7 @@ def render_horizontal_navigation():
             },
             {
                 "name": "Video Assembly",
-                "icon": "🎞️",
+                "icon": "🇯️",
                 "path": "pages/6_Video_Assembly.py",
                 "step": 7
             },
@@ -236,4 +236,4 @@ def render_step_navigation(current_step, prev_step_path=None, next_step_path=Non
     with col3:
         if next_step_path:
             if st.button("Next Step ➡️", use_container_width=True):
-                st.switch_page(next_step_path) 
+                st.switch_page(next_step_path)

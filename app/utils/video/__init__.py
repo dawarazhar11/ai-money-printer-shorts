@@ -1,5 +1,5 @@
 """
-Video assembly and processing utilities for RealForge
+Video assembly and processing utilities for ReelForge
 """
 
 # Import primary assembly components
@@ -22,4 +22,4 @@ __all__ = [
     'resize_video',
     'MOVIEPY_AVAILABLE',
     'simple_assemble_video'
-] 
+]

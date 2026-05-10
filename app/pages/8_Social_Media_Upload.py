@@ -33,7 +33,7 @@ except ImportError as e:
 
 # Set page config
 st.set_page_config(
-    page_title="Publishing | RealForge",
+    page_title="Publishing | ReelForge",
     page_icon="🚀",
     layout="wide"
 )
@@ -323,7 +323,7 @@ def main():
         
         description = st.text_area(
             "Description:",
-            value="Created with RealForge.\n\n#AIVideo #Shorts #ContentCreation",
+            value="Created with ReelForge.\n\n#AIVideo #Shorts #ContentCreation",
             help="Enter a description for your video"
         )
         
@@ -510,4 +510,4 @@ def main():
 
 # Run the main function
 if __name__ == "__main__":
-    main() 
+    main()

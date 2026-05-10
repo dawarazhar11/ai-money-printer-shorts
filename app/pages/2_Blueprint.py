@@ -10,7 +10,7 @@ from utils.session_state import get_settings
 
 # Set page configuration
 st.set_page_config(
-    page_title="Video Blueprint | RealForge",
+    page_title="Video Blueprint | ReelForge",
     page_icon="📝",
     layout="centered",
     initial_sidebar_state="expanded"
@@ -114,4 +114,4 @@ render_step_navigation(
     current_step=1,
     prev_step_path="pages/1_Settings.py",
     next_step_path="pages/3_Script_Segmentation.py"
-) 
+)
