@@ -12,7 +12,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Optional
 
-from app.core.logging import get_logger
+from core.logging import get_logger
 
 from .loader import load_config_dict, save_config_dict
 from .schema import ReelForgeConfig

@@ -4,13 +4,13 @@ Kept for backward compatibility with pages that import:
     from config import COMFYUI_IMAGE_API_URL  # etc.
 
 New code should use the typed singleton instead:
-    from app.core.config import config_manager
+    from core.config import config_manager
     config_manager.comfyui().image_api_url
 """
 
 from pathlib import Path
 
-from app.core.config import config_manager
+from core.config import config_manager
 
 _cfg = config_manager.config
 

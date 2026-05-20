@@ -34,10 +34,10 @@ from tenacity import (
     wait_random_exponential,
 )
 
-from app.core.catalogs import get_voice, speed_to_rate
-from app.core.config import config_manager
-from app.core.logging import get_logger
-from app.core.models import MediaAsset
+from core.catalogs import get_voice, speed_to_rate
+from core.config import config_manager
+from core.logging import get_logger
+from core.models import MediaAsset
 
 logger = get_logger("services.tts")
 

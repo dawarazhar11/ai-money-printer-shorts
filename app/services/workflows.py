@@ -24,8 +24,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal, Optional
 
-from app.config import WORKFLOWS_DIR
-from app.core.logging import get_logger
+from config import WORKFLOWS_DIR
+from core.logging import get_logger
 
 logger = get_logger("services.workflows")
 
