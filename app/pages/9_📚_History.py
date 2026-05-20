@@ -14,8 +14,8 @@ import streamlit as st
 
 sys.path.append(os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 
-from app.core.logging import get_logger  # noqa: E402
-from app.core.storage import project_store  # noqa: E402
+from core.logging import get_logger  # noqa: E402
+from core.storage import project_store  # noqa: E402
 
 logger = get_logger("pages.history")
 

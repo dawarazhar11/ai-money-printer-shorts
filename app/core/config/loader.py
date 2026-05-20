@@ -14,7 +14,7 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 
-from app.core.logging import get_logger
+from core.logging import get_logger
 
 logger = get_logger("config.loader")
 

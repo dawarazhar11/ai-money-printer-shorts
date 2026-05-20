@@ -30,9 +30,9 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional
 
-from app.core.config import config_manager
-from app.core.logging import get_logger
-from app.core.models import MediaAsset
+from core.config import config_manager
+from core.logging import get_logger
+from core.models import MediaAsset
 
 logger = get_logger("services.frame_html")
 

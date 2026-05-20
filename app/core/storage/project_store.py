@@ -26,9 +26,9 @@ from threading import Lock
 from typing import Literal, Optional
 from uuid import uuid4
 
-from app.core.config import config_manager
-from app.core.logging import get_logger
-from app.core.models import ReelProject
+from core.config import config_manager
+from core.logging import get_logger
+from core.models import ReelProject
 
 logger = get_logger("storage.projects")
 
