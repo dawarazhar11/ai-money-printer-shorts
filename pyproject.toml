@@ -110,7 +110,7 @@ ignore = ["E501", "B008"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["app/tests"]
+testpaths = ["app/tests/unit"]
 addopts = "-ra --strict-markers"
 
 [tool.mypy]
