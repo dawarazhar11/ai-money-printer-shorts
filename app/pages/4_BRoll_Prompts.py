@@ -19,7 +19,7 @@ from utils.video.broll_defaults import DEFAULT_BROLL_IDS, get_default_broll_id
 
 # Set page configuration
 st.set_page_config(
-    page_title="B-Roll Prompt Generation | RealForge",
+    page_title="B-Roll Prompt Generation | ReelForge",
     page_icon="🔍",
     layout="centered",
     initial_sidebar_state="expanded"
@@ -867,4 +867,4 @@ render_step_navigation(
     current_step=4,
     prev_step_path="pages/3_Script_Segmentation.py",
     next_step_path="pages/5A_ARoll_Video_Production.py"
-) 
+)

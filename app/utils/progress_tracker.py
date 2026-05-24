@@ -16,7 +16,7 @@ class ComfyUIProgressTracker:
         self.ws = None
         self.callbacks = {}
         self.connected = False
-        self.client_id = f"realforge_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        self.client_id = f"reelforge_{datetime.now().strftime('%Y%m%d%H%M%S')}"
         
     def connect(self):
         """Connect to ComfyUI WebSocket server"""
@@ -301,4 +301,4 @@ def start_replicate_tracking(prediction_id, api_token):
     thread.daemon = True
     thread.start()
     
-    return thread  # Return thread for reference 
+    return thread  # Return thread for reference

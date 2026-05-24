@@ -38,7 +38,7 @@ def get_workflow_steps():
         },
         {
             "name": "Video Assembly",
-            "icon": "🎞️",
+            "icon": "🇯️",
             "path": "pages/6_Video_Assembly.py"
         },
         {
@@ -67,7 +67,7 @@ def get_step_progress():
 def render_workflow_navigation():
     """Render the workflow navigation in the sidebar"""
     # Render logo and app name
-    st.sidebar.title("🎬 RealForge")
+    st.sidebar.title("🎬 ReelForge")
     st.sidebar.caption("AI Video Shorts Generator")
     
     # Render progress bar
@@ -112,4 +112,4 @@ def render_step_navigation(current_step, next_step_path=None, prev_step_path=Non
         # Mark current step as complete
         from utils.session_state import mark_step_complete
         mark_step_complete(f"step_{current_step}")
-        st.switch_page(next_step_path) 
+        st.switch_page(next_step_path)
